@@ -1,4 +1,5 @@
 /ibm1401
 /autocoder
 /build/
+/dist/
 *.o

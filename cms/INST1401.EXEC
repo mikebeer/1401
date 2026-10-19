@@ -72,6 +72,15 @@ do while queued() > 0
   if rc = 0 then n = n + 1
 end
 'DROPBUF'
+do i = 1 to 2      /* the samples' data, if they came along */
+  f = word('T05CARDS DATA T07CONS CONSOLE', 2 * i - 1) ,
+      word('T05CARDS DATA T07CONS CONSOLE', 2 * i)
+  'SET CMSTYPE HT'
+  'STATE' f 'A'
+  src = rc
+  'SET CMSTYPE RT'
+  if src = 0 then 'COPYFILE' f 'A = = D2 (REPLACE OLDDATE'
+end
 'RELEASE D'
 say 'INST1401:' n 'files on 19E'
 
