@@ -68,6 +68,20 @@ typedef struct {
 
 #define P_REPEAT (-2)
 
+/* the %F digit of a disk op written with one operand (1405, manual pp.
+   64-68): seek 0, single record 1, full track 2, write check 3 */
+static int disk_fn(const char *op)
+{
+    static const char *const fn[] = {"SD",  "RD",   "RDW", "WD",   "WDW",
+                                     "RDT", "RDTW", "WDT", "WDTW", "WDC",
+                                     "WDCW"};
+    static const int dg[] = {0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3};
+    int i;
+    for (i = 0; i < 11; i++)
+        if (!strcmp(op, fn[i])) return dg[i];
+    return -1;
+}
+
 static const OpCode optab[] = {{"DA", 0, REQ, PRO, PRO},
                                {"DC", P_REPEAT, REQ, PRO, PRO},
                                {"DCW", P_REPEAT, REQ, PRO, PRO},
@@ -83,7 +97,7 @@ static const OpCode optab[] = {{"DA", 0, REQ, PRO, PRO},
                                {"ZS", B_MZERO, OPT, OPT, PRO},
                                /* data control */
                                {"MBC", B_M, OPT, OPT, B_B},
-                               {"MBD", B_M, OPT, OPT, B_D},
+                               {"MBD", B_M, OPT, OPT, B_A},
                                {"MCE", B_E, OPT, OPT, PRO},
                                {"MCS", B_Z, OPT, OPT, PRO},
                                {"MIZ", B_X, OPT, OPT, PRO},
@@ -130,10 +144,10 @@ static const OpCode optab[] = {{"DA", 0, REQ, PRO, PRO},
                                {"PCB", B_FOUR, OPT, PRO, B_C},
                                {"R", B_ONE, OPT, PRO, PRO},
                                {"RCB", B_ONE, OPT, PRO, B_C},
-                               {"RD", B_M, B_D, REQ, B_R},
-                               {"RDT", B_M, B_D, REQ, B_R},
-                               {"RDTW", B_L, B_D, REQ, B_R},
-                               {"RDW", B_L, B_D, REQ, B_R},
+                               {"RD", B_M, B_F, REQ, B_R},
+                               {"RDT", B_M, B_F, REQ, B_R},
+                               {"RDTW", B_L, B_F, REQ, B_R},
+                               {"RDW", B_L, B_F, REQ, B_R},
                                {"RF", B_FOUR, REQ, PRO, B_R},
                                {"RP", B_FIVE, OPT, PRO, PRO},
                                {"RT", B_M, B_U, REQ, B_R},
@@ -141,17 +155,17 @@ static const OpCode optab[] = {{"DA", 0, REQ, PRO, PRO},
                                {"RTW", B_L, B_U, REQ, B_R},
                                {"RWD", B_U, B_U, PRO, B_R},
                                {"RWU", B_U, B_U, PRO, B_U},
-                               {"SD", B_M, B_D, REQ, B_R},
+                               {"SD", B_M, B_F, REQ, B_R},
                                {"SKP", B_U, B_U, PRO, B_E},
                                {"SPF", B_NINE, OPT, PRO, PRO},
                                {"SRF", B_EIGHT, OPT, PRO, PRO},
                                {"W", B_TWO, OPT, PRO, PRO},
-                               {"WD", B_M, B_D, REQ, B_W},
-                               {"WDC", B_M, B_D, REQ, B_W},
-                               {"WDCW", B_L, B_D, REQ, B_W},
-                               {"WDT", B_M, B_D, REQ, B_W},
-                               {"WDTW", B_L, B_D, REQ, B_W},
-                               {"WDW", B_L, B_D, REQ, B_W},
+                               {"WD", B_M, B_F, REQ, B_W},
+                               {"WDC", B_M, B_F, REQ, B_W},
+                               {"WDCW", B_L, B_F, REQ, B_W},
+                               {"WDT", B_M, B_F, REQ, B_W},
+                               {"WDTW", B_L, B_F, REQ, B_W},
+                               {"WDW", B_L, B_F, REQ, B_W},
                                {"WM", B_TWO, OPT, PRO, B_LOZENGE},
                                {"WP", B_SIX, OPT, PRO, PRO},
                                {"WR", B_THREE, OPT, PRO, PRO},
@@ -1300,6 +1314,16 @@ static void pass1_stmt(Stmt *s)
             D = oc->d;
             d = (D >= 0) ? D : -1;
             got_d = D >= 0;
+        }
+        if (!s->direct && A == B_F && s->nops == 1 && disk_fn(oc->op) >= 0) {
+            /* 1405 form: one operand; the function digit is the op's */
+            s->ops[1] = s->ops[0];
+            memset(&s->ops[0], 0, sizeof s->ops[0]);
+            s->ops[0].kind = K_ACTUAL;
+            s->ops[0].addr = disk_fn(oc->op);
+            s->ops[0].index = -1;
+            s->ops[0].d = -1;
+            s->nops = 2;
         }
         s->d = d;
         lt = le = 0;

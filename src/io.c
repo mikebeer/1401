@@ -67,30 +67,98 @@ static int hopper_empty(void)
 }
 
 /* read one card image into buf (80 characters, blank filled) */
-static int rdr_card(char *buf)
+static int rdr_card(char *buf, int width)
 {
     int c, n = 0;
-    memset(buf, ' ', 80);
+    memset(buf, ' ', (size_t)width);
     c = io.rdr_peek != EOF ? io.rdr_peek : rdr_getc();
     io.rdr_peek = EOF;
     if (c == EOF) return -1;
     while (c != EOF && c != '\n') {
-        if (c != '\r' && n < 80) buf[n++] = (char)c;
+        if (c != '\r' && n < width) buf[n++] = (char)c;
         c = rdr_getc();
     }
     return 0;
 }
 
+/* ===================================================== column binary */
+
+/* A column-binary card is a line of 160 characters, two per column: the
+   first holds rows 12,11,0,1,2,3 and the second rows 4-9, each as the
+   bits B A 8 4 2 1 of a BCD character (SimH's format; with encoding S
+   the 80 first halves come first, then the 80 second halves).  The card
+   code of each BCD character, as 12 bits 12,11,0,1,...,9 (bit 11 = 12). */
+static int hol[64]; /* BCD -> punches, -1 if none */
+static int hol_done;
+
+static void hol_init(void)
+{
+    int c, z, d, p;
+    static const int zone[4] = {0, 1 << 9, 1 << 10, 1 << 11}; /* -,0,11,12 */
+    for (c = 0; c < 64; c++) {
+        z = (c >> 4) & 3;
+        d = c & 15;
+        p = zone[z];
+        if (d == 0) {
+            if (z == 1) p = -1; /* 020 has no card code */
+        } else if (d <= 9)
+            p |= 1 << (9 - d);
+        else if (d == 10)
+            p = z == 0 ? 1 << 9 : z == 1 ? (1 << 9) | (1 << 7) | (1 << 1)
+                                         : zone[z] | (1 << 9);
+        else
+            p |= (1 << (9 - (d - 8))) | (1 << 1); /* 3-8 ... 7-8 */
+        hol[c] = p;
+    }
+    hol_done = 1;
+}
+
+/* the BCD character a column's punches read as: its character if the
+   punches are one, else the rows ORed together as SimH does (hash) */
+static int colbin_to_bcd(int cb)
+{
+    static const int row_val[12] = {011, 010, 007, 006, 005, 004,
+                                    003, 002, 001, 020, 040, 060};
+    int i, bcd = 0;
+    if (!hol_done) hol_init();
+    for (i = 0; i < 64; i++)
+        if (hol[i] == cb) return i;
+    for (i = 0; i < 12; i++)
+        if (cb & (1 << i)) bcd |= row_val[i];
+    return bcd;
+}
+
+static int cb_old(void) { return bcd_enc_name[0] == 'S'; }
+
+static int read_colbin(void)
+{
+    char buf[160];
+    int i, c1, c2;
+    if (rdr_card(buf, 160)) return STOP_NOCARD;
+    for (i = 0; i < 80; i++) {
+        c1 = TOBCD(buf[cb_old() ? i : 2 * i]) & CHARM;
+        c2 = TOBCD(buf[cb_old() ? 80 + i : 2 * i + 1]) & CHARM;
+        m.M[401 + i] = (unsigned char)((m.M[401 + i] & WM) | c1);
+        m.M[501 + i] = (unsigned char)((m.M[501 + i] & WM) | c2);
+        m.M[1 + i] = (unsigned char)((m.M[1 + i] & WM) |
+                                     colbin_to_bcd((c1 << 6) | c2));
+    }
+    return STOP_NONE;
+}
+
 int io_read_card(int ilnt, int mod)
 {
     char buf[80];
-    int i;
-    (void)ilnt;
-    (void)mod; /* column binary (C) reads as BCD */
+    int i, r;
     m.ind[IN_READ] = m.ind[IN_LST] = 0;
-    if (rdr_card(buf)) return STOP_NOCARD;
-    for (i = 0; i < 80; i++)
-        m.M[1 + i] = (unsigned char)((m.M[1 + i] & WM) | TOBCD(buf[i]));
+    if ((ilnt == 2 || ilnt == 5) && mod == B_C) {
+        r = read_colbin();
+        if (r) return r;
+    } else {
+        if (rdr_card(buf, 80)) return STOP_NOCARD;
+        for (i = 0; i < 80; i++)
+            m.M[1 + i] = (unsigned char)((m.M[1 + i] & WM) | TOBCD(buf[i]));
+    }
     m.M[0] = 060; /* C A B bits in 000 */
     io.cards_read++;
     if (hopper_empty()) m.ind[IN_LST] = 1;
@@ -113,13 +181,20 @@ int io_load(void)
 
 int io_punch_card(int ilnt, int mod)
 {
-    char buf[81];
+    char buf[161];
     int i, n;
-    (void)ilnt;
-    (void)mod;
     m.ind[IN_PNCH] = 0;
-    for (i = 0; i < 80; i++) buf[i] = TOCHR(m.M[101 + i]);
-    for (n = 80; n > 0 && buf[n - 1] == ' '; n--);
+    if ((ilnt == 2 || ilnt == 5) && mod == B_C) { /* column binary */
+        for (i = 0; i < 80; i++) {
+            buf[cb_old() ? i : 2 * i] = TOCHR(m.M[401 + i]);
+            buf[cb_old() ? 80 + i : 2 * i + 1] = TOCHR(m.M[501 + i]);
+        }
+        n = 160;
+    } else {
+        for (i = 0; i < 80; i++) buf[i] = TOCHR(m.M[101 + i]);
+        n = 80;
+    }
+    for (; n > 0 && buf[n - 1] == ' '; n--);
     buf[n] = 0;
     m.M[100] = B_ZERO; /* C 8 2 bits in 100 */
     io.cards_punched++;
@@ -304,15 +379,6 @@ int io_console(int flag, int mod)
         return STOP_NONE;
     }
     return STOP_INVM;
-}
-
-/* ====================================================== 1405 / 1311 */
-
-int io_disk(int flag, int mod)
-{
-    (void)flag;
-    (void)mod;
-    return STOP_NXD;
 }
 
 /* ========================================================= 729 tapes */
@@ -628,6 +694,7 @@ void io_close(void)
 {
     int i;
     for (i = 1; i <= 6; i++) tape_save(&tapes[i]);
+    disk_close();
     if (io.lpt && io.lpt_asa && io.pending_asa < 0) {
         /* a final skip to channel 1 */
     }

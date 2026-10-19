@@ -13,3 +13,6 @@ t06misc  S
 hello    A
 primes   A
 t07cons  A
+t08pack  A
+t09ramac A
+t10colbin A

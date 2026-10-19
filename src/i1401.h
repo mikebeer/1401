@@ -41,6 +41,7 @@ enum {
     STOP_LIMIT,   /* instruction limit reached */
     STOP_IOERR,   /* host file error */
     STOP_CONSEOF, /* console input ended */
+    STOP_DISK,    /* invalid disk operation (drive, address, count) */
     STOP_MAX
 };
 
@@ -134,7 +135,10 @@ int io_carriage(int mod);
 int io_console(int flag, int mod);
 int io_tape(int unit, int flag, int mod);
 int io_tape_func(int unit, int flag, int mod);
-int io_disk(int flag, int mod);
+int io_disk(int fnc, int flag, int mod); /* disk.c */
+int disk_attach_pack(int drive, const char *name); /* 1311 drive 0-4 */
+int disk_attach_ramac(const char *name);           /* 1405 */
+int disk_close(void);
 int io_load(void); /* the LOAD key: boot from cards */
 void io_close(void);
 int tape_attach(int unit, const char *name, int readonly);

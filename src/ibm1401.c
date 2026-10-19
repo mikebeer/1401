@@ -15,6 +15,8 @@
  *   ASA              print file with ASA carriage control in column 1
  *   PUNCH file       1402 punch output (default: cards are dropped)
  *   TAPEn file       mount a tape on 729 unit n (1-6); RTAPEn read-only
+ *   PACKn file       mount a 1311 disk pack on drive n (0-4), SimH .dsk
+ *   DISK file        the 1405 disk storage (Model 2) in this file
  *   CONSOLE file     1407 console input from a file (default terminal)
  *   CONOUT file      1407 console output to a file (default terminal)
  *   SIZE n           core storage: 1400 2000 4000 8000 12000 16000 (4K..)
@@ -111,8 +113,9 @@ static void usage(void)
         " - IBM 1401 emulator for VM/370plus\n"
         "usage: IBM1401 deck [deck ...] ( options\n"
         "  DATA file  PRINT file|*  ASA  PUNCH file  TAPEn file  RTAPEn file\n"
-        "  CONSOLE file  CONOUT file  SIZE n  ENCODING A|H|S  SWITCH BCDEFG\n"
-        "  HALT STOP|GO|ASK  LIMIT n  TRACE [file]  DUMP from to  QUIET\n"
+        "  PACKn file  DISK file  CONSOLE file  CONOUT file  SIZE n\n"
+        "  ENCODING A|H|S  SWITCH BCDEFG  HALT STOP|GO|ASK  LIMIT n\n"
+        "  TRACE [file]  DUMP from to  QUIET\n"
         "on the PC each option may be written -option\n");
 }
 
@@ -126,10 +129,13 @@ int main(int argc, char **argv)
     long dump_from = -1, dump_to = -1;
     char *tape_name[7];
     int tape_ro[7];
+    char *pack_name[5], *ramac_name = 0;
+    int npack = 0;
     int reason;
 
     memset(tape_name, 0, sizeof tape_name);
     memset(tape_ro, 0, sizeof tape_ro);
+    memset(pack_name, 0, sizeof pack_name);
     memset(&m, 0, sizeof m);
     memset(&io, 0, sizeof io);
     bcd_set_encoding('A');
@@ -206,6 +212,20 @@ int main(int argc, char **argv)
             }
             tape_name[u] = take_file(argc, argv, &i);
             tape_ro[u] = ro;
+        } else if (!strncmp(kw, "PACK", 4) && strlen(kw) == 5) {
+            int u = kw[4] - '0';
+            if (u < 0 || u > 4 || ramac_name) {
+                fprintf(stderr, "IBM1401: bad disk pack %s\n", kw);
+                return 24;
+            }
+            pack_name[u] = take_file(argc, argv, &i);
+            npack++;
+        } else if (ieq(kw, "DISK")) {
+            if (npack) {
+                fprintf(stderr, "IBM1401: a 1401 has a 1311 or a 1405\n");
+                return 24;
+            }
+            ramac_name = take_file(argc, argv, &i);
         } else if (ieq(kw, "SIZE") && i < argc) {
             char *s = argv[i++];
             long n = atol(s);
@@ -305,6 +325,17 @@ int main(int argc, char **argv)
             fprintf(stderr, "IBM1401: cannot mount tape %s\n", tape_name[i]);
             return 20;
         }
+
+    for (i = 0; i <= 4; i++)
+        if (pack_name[i] && disk_attach_pack(i, pack_name[i])) {
+            fprintf(stderr, "IBM1401: cannot mount disk pack %s\n",
+                    pack_name[i]);
+            return 20;
+        }
+    if (ramac_name && disk_attach_ramac(ramac_name)) {
+        fprintf(stderr, "IBM1401: cannot use disk file %s\n", ramac_name);
+        return 20;
+    }
 
     cpu_reset();
     if (rdr_open_next()) return 20;

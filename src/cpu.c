@@ -222,7 +222,8 @@ static const char *stop_msgs[STOP_MAX] = {
     "tape write of a zero length record",
     "instruction limit reached",
     "file error",
-    "console input ended"};
+    "console input ended",
+    "invalid disk operation"};
 
 const char *stop_text(int r)
 {
@@ -317,13 +318,54 @@ static const int mtf_mod[] = {B_A, B_B, B_E, B_M, B_R, B_U, -1};
 #define IO_MTB 062 /* %Bx */
 #define IO_DP  066 /* %Fx */
 
+/* column binary moves (manual pp. 92-93).  MBD (d A): from the 401-480
+   and 501-580 areas, A at the 500-area units position, to the tape area
+   ending at B in the order 401 501 402 502 ...; stops after the 400-area
+   position with a word mark.  MBC (d B): the reverse, from the tape area
+   ending at A to the card areas, B at the 500-area units position; stops
+   after a 400-area word mark, or after the pair whose tape character has
+   one.  Word marks are not moved. */
+static int colbin_move(int decode)
+{
+    unsigned char *M = m.M;
+    long a = m.AS, b = m.BS;
+    unsigned char w, a1, a2;
+    for (;;) {
+        if (decode) {
+            if (a < 100 || ADDR_ERR(a) || b < 1 || ADDR_ERR(b))
+                return STOP_WRAP;
+            M[b] = (unsigned char)((M[b] & WM) | (M[a] & CHARM));
+            b--;
+            w = M[a - 100];
+            M[b] = (unsigned char)((M[b] & WM) | (w & CHARM));
+            b--;
+            a--;
+            if (w & WM) break;
+        } else {
+            if (a < 1 || ADDR_ERR(a) || b < 100 || ADDR_ERR(b))
+                return STOP_WRAP;
+            a1 = M[a];
+            M[b] = (unsigned char)((M[b] & WM) | (a1 & CHARM));
+            a2 = M[a - 1];
+            w = M[b - 100];
+            M[b - 100] = (unsigned char)((w & WM) | (a2 & CHARM));
+            a -= 2;
+            b--;
+            if ((w | a1 | a2) & WM) break;
+        }
+    }
+    m.AS = a;
+    m.BS = b;
+    return STOP_NONE;
+}
+
 static int iodisp(int dev, int unit, int flag, int mod)
 {
     switch (dev) {
     case IO_INQ: return io_console(flag, mod);
     case IO_MT: return io_tape(unit, flag, mod);
     case IO_MTB: return io_tape(unit, flag | MD_BIN, mod);
-    case IO_DP: return io_disk(flag, mod);
+    case IO_DP: return io_disk(unit, flag, mod);
     }
     return STOP_NXD;
 }
@@ -492,6 +534,10 @@ int cpu_run(void)
         case OP_MCW:
             if (ilnt >= 4 && ioind == B_PERCNT) {
                 reason = iodisp(dev, unit, 0, m.D);
+                break;
+            }
+            if (ilnt >= 8 && (m.D == B_A || m.D == B_D || m.D == B_B)) {
+                reason = colbin_move(m.D != B_B); /* D: Van's MBD */
                 break;
             }
             if (ADDR_ERR(m.AS)) {
@@ -709,7 +755,7 @@ int cpu_run(void)
                 break;
             }
             reason = io_read_card(ilnt, m.D);
-            m.BS = 81;
+            m.BS = ((ilnt == 2 || ilnt == 5) && m.D == B_C) ? 481 : 81;
             if (!reason && (ilnt == 4 || ilnt == 5)) BRANCH;
             break;
         case OP_W:
