@@ -15,7 +15,7 @@ primes   A
 t07cons  A
 t08pack  A
 t09ramac A
-t10colbin A
+t10colbn A
 t11lc    A
 t12reloc A
 t13macro A

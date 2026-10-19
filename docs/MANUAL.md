@@ -1,6 +1,6 @@
 # IBM 1401 for VM/370plus — manual
 
-Build 1.  Version 1.0 of IBM1401 and AUTOCODR.
+Build 2.  Version 1.0 of IBM1401 and AUTOCODR.
 
 1. [Installing on VM/370plus](#1-installing-on-vm370plus)
 2. [RUN1401 — run a program in your own virtual machine](#2-run1401)
@@ -23,7 +23,8 @@ its CMS name (`RUN1401.EXEC` is RUN1401 EXEC):
 | RUN1401, SEND1401 EXEC | for users |
 | SRV1401, G1401PRO EXEC | the 1401 guest and its PROFILE |
 | DIR1401, INST1401, MK1401 EXEC | installation (MAINT) |
-| HELLO, PRIMES, T01ARITH ... T07CONS AUTOCODE | samples; T05CARDS DATA, T07CONS CONSOLE |
+| HELLO, PRIMES, T01ARITH ... T13MACRO AUTOCODE | samples; T05CARDS DATA, T07CONS CONSOLE, T10COLBN DATA |
+| PRCON, ADD2, TWICE, PRS, TBL MACRO | the sample library macros that T13MACRO uses |
 
 **1. Send the files to MAINT.** Use vmspool from the PC
 (`python3 vmspool.py CMS/RUN1401.EXEC MAINT RUN1401 EXEC`, then READCARD or
@@ -72,6 +73,8 @@ the deck fn DECK is loaded with the LOAD key and run.  Files:
 | `PRINT` | also print the printout on your virtual printer |
 | `TYPE` | also type it on the terminal |
 | `TAPEn fn ft [fm]` | mount a tape on 729 unit n, 1–6 (fm A if omitted, so a new tape can be written) |
+| `PACKn fn ft [fm]` | mount a 1311 disk pack on drive n, 0–4 (fm A if omitted) |
+| `DISK fn ft [fm]` | the 1405 disk storage is this file (fm A if omitted) |
 | `SWITCH BCDEFG` | sense switches on |
 | `HALT GO` / `HALT ASK` | a halt continues / asks at the terminal (default: the run ends) |
 | `LIMIT n` | stop after n instructions |
@@ -97,6 +100,8 @@ reader too, and the sender gets one message:
     SEND1401 fn [ft [fm]] [( options]
       DATA fn ft [fm]     data cards behind the deck (fm A if omitted)
       TAPEn name          the guest's tape "name" on unit n
+      PACKn name          the guest's 1311 pack "name" on drive n
+      DISK name           the guest's 1405 disk storage "name"
       SWITCH x  HALT GO  LIMIT n
       TO userid           another 1401 guest
 
@@ -108,7 +113,10 @@ first card that the guest reads and does not give to the 1401:
 
 A tape `name` is the file `name TAPE1401 A` on the guest's 191.  It is
 created when first written and kept, so one job can write a tape that the
-next reads.
+next reads.  Disks are kept the same way: a 1311 pack `name` is
+`name PACK1311 A`, a 1405 disk storage `name DISK1405 A`.  A full 1311
+pack takes 2.1 MB; a 1405 file holds only the records ever written (204
+bytes each), so mind the size of the guest's 191.
 
 **The service machine** runs SRV1401 from its PROFILE EXEC when it was
 started disconnected (AUTOLOG).  Logged on at a terminal, it only tells
@@ -139,6 +147,7 @@ is not available to guest jobs.
 | `ENCODING A\|H\|S` | character encoding of source and deck |
 | `BOOT I\|N` | IBM loader cards in front of the deck (default), or none |
 | `SIZE n` | core size the clear-storage cards clear (default 16000) |
+| `MACLIB dir` | (PC) a directory of library macros; may be given up to 8 times. The source's own directory is searched first. On CMS a macro is the file `NAME MACRO` on any accessed disk. |
 
 Return codes: 0 clean, 8 errors (each is listed under its line and shown
 on the terminal), 12 a file cannot be opened.  The listing shows, for every
@@ -171,6 +180,8 @@ read, a word mark is set in 001, and the program starts at 001.
 | `ASA` | ASA carriage control in column 1 (` ` `0` `-` `+` `1`) instead of newlines and form feeds |
 | `PUNCH file` | 1402 punch (default: the cards are dropped) |
 | `TAPEn file`, `RTAPEn file` | a tape on unit n, read-write / read-only. `name.tap` is a SimH tape; anything else is text with one record per line (a tape mark is a line holding only the tape-mark character). Tapes are written back when the run ends. |
+| `PACKn file` | a 1311 disk pack on drive n, 0–4, in SimH's `.dsk` format; created if new, written back when the run ends |
+| `DISK file` | the 1405 disk storage, in this file; created if new, written back when the run ends. A 1401 has a 1311 or a 1405, so `DISK` and `PACKn` exclude each other. |
 | `CONSOLE file`, `CONOUT file` | 1407 input and output (default: the terminal) |
 | `SWITCH letters` | sense switches B–G |
 | `HALT STOP\|GO\|ASK` | what the halt instruction does |
@@ -184,6 +195,51 @@ read, a word mark is set in 001, and the program starts at 001.
 The end-of-run message reads:
 
     IBM1401: HALT AT 551, 65618 INSTRUCTIONS, 14 CARDS READ, 18 LINES PRINTED, 0 CARDS PUNCHED
+
+**Column binary.**  `RCB` (`1` with d-character C) reads a card of 160
+characters, two per column: the first holds rows 12, 11, 0, 1, 2, 3 and the
+second rows 4–9, as the bits B A 8 4 2 1 of a 1401 character (SimH's
+format; in encoding S the 80 first halves come first, then the 80 second
+halves).  They go to 401–480 and 501–580, and 001–080 gets the card's
+characters, or the rows ORed together where a column's punches are no
+character.  The B-register is 481 afterwards.  On CMS a card file with
+column-binary cards needs records of 160 (RECFM V, or F 160).  `PCB` (`4` with C) punches
+401–480 and 501–580 in the same format.  `MBD` (`M` with d-character A, or
+D as Van Snyder's Autocoder writes it) puts 401 501 402 502 ... into a tape
+area ending at the B-address; `MBC` (`M` with B) does the reverse.  Both
+stop after the 400-area position with a word mark (manual pp. 90–93).
+
+**1311 disk drive** (`PACKn`).  It behaves as SimH's: 100 cylinders of 10
+tracks of 20 sectors; a sector is a 6-character address and 100 characters
+(move mode) or 90 characters with word marks (load mode, `L`).  The
+B-address is the disk control field: the drive (0 2 4 6 8 for drives 0–4),
+a 6-digit sector address and a 3-digit sector count, with the data right
+behind it and a group mark with a word mark at the end.  `%F0` seeks (a
+`#`-flagged field is a direct seek), `%F1` reads or writes sectors, `%F3`
+write-checks the last operation, `%F5` reads or writes with the sector
+count overlaid, `%F6` reads or writes whole tracks with their addresses.
+An address of 000000 on the pack stands for the sector's own number.
+
+**1405 disk storage** (`DISK`), as in the manual (pp. 63–68): a Model 2,
+100,000 records of 200 characters, five records to a track.  The B-address
+is an 8-character record address (access arm 0 or 1, a 6-digit record
+number, a constant 0), then a group mark with a word mark, then the data,
+then another group mark with a word mark.  `%F0` seeks, `%F1` reads or
+writes one record (200 characters; 176 with word marks under `L`), `%F2` a
+whole track starting at the addressed record (1000; 880), `%F3`
+write-checks the last operation.  A read or write needs the arm on the
+record's track; otherwise the unequal-address indicator turns on and
+nothing moves.  A record read in the other mode than it was written in
+turns on the parity indicator.  Afterwards A is B+1, and B is B+210, B+1010,
+B+186 or B+890.
+
+**Disk indicators** (both units; `BIN` tests them): V parity or write check
+error, W wrong-length record, X unequal address, Y any disk error, N access
+inoperable (a drive not mounted, an arm not there).  Errors set the
+indicators and the program goes on; a 1405 record address that is not a
+valid number turns on N.  A 1311 disk control field with an invalid drive,
+sector address or count stops the run with "invalid disk operation"
+(return code 12), as SimH does.
 
 ## 6. The Autocoder language
 
@@ -216,7 +272,39 @@ low-order (units) position.  A label on an instruction names its op code.
 | `JOB text` | the listing heading; columns 76–80 go to every card of the deck |
 | `CHAIN n` | n more copies of the previous op code (chained instructions) |
 | `SFX c` | suffix c on 5-character names |
-| `CTL`, `PRINT`, `PUNCH`, `ALTER`, `INCLD`, `CALL` | accepted and ignored |
+| `LC n[,R[,X00+k]]`, `LC n,X,LABEL+k` | location counter n, 0–9 (see below) |
+| `CALL NAME,A,B` | `B NAME`, `DCW A`, `DCW B`; the file named by NAME's first 3 letters is included before the next LTORG, EX or END |
+| `INCLD NAME` | only the inclusion |
+| `CTL`, `PRINT`, `PUNCH`, `ALTER` | accepted and ignored |
+
+**Location counters** (as in Van Snyder's Autocoder).  `LC n` switches to
+counter n; each counter goes on where it left off.  Counter 0 starts at
+333, the others at 0, and `ORG` sets the current one.  `LC n,R` makes a
+relocatable counter, which may not hold an absolute ORG.  AUTOCODR has no
+linker, so it places relocatable counters itself, in counter order:
+`LC n,R` right after the highest absolute address, `LC n,R,X00+k` at the
+next multiple of 100 plus k, `LC n,X,LABEL+k` at LABEL+k.  Labels in them
+get their final addresses, and the deck is absolute.
+
+**Macros** (Van Snyder's format).  A statement whose operation is no
+Autocoder operation calls the library macro of that name (3 to 5
+letters).  The macro file's first line may be a `HEADR` line; the other
+lines are model statements, in which:
+
+| Code | |
+|---|---|
+| `)00` in the label field | the macro statement's label |
+| `)01` ... `)99` | the operands 1–99 (in the label or operation field the operand fills the field) |
+| `)0A` ... `)0I` (12 zone) | operands 1–9, but the statement is dropped if the operand is missing |
+| `)0J` ... `)0R` (11 zone) | an internal label, `)0J` followed by the macro statement's 3-digit serial number |
+| at the end of the remarks: `)0/` ... `)0Z` (0 zone) | drop the statement if operand 1–9 is there |
+| at the end of the remarks: `)0A` ... `)0I` | drop the statement if operand 1–9 is missing |
+
+Operands are separated by commas; `@...@` may hold commas and blanks.  A
+comma followed by blanks continues the operands in column 21 of the next
+line (up to 5 lines).  Macros may call macros.  Generated lines are marked
+`+` in the listing.  The sample macros PRCON, ADD2 and TWICE and the
+T13MACRO program show each code.
 
 **Operands.**
 
@@ -237,7 +325,13 @@ low-order (units) position.  A label on an instruction names its op code.
 - Other: `C SW CW CS SAR SBR MA NOP H`
 - Cards and printer: `R W WR P RP WP WRP RCB PCB RF WRF SRF SPF SS SSB CC CCB WM`
 - Tapes: `RT RTW RTB WT WTW WTB WTM BSP SKP RWD RWU CU MU LU`
-- Disks: `RD RDW SD WD WDW ...`
+- Disks: `SD RD RDW RDT RDTW WD WDW WDT WDTW WDC WDCW`.  With one operand
+  (`RD AREA`) the function digit is the 1405's: seek 0, record 1, track 2,
+  check 3, giving `M %F1 AREA R`.  With two (`RD 6,DCF`) the first is the
+  digit, for every 1311 function.  Van Snyder's Autocoder writes `%D` here;
+  the manual and AUTOCODR write `%F`.
+- `MBD` assembles with d-character A, as in the manual (Van Snyder's
+  Autocoder writes D; IBM1401 takes both).
 
 An actual op code may be written in column 19 with the d-character in
 column 20.
@@ -274,8 +368,12 @@ sent with vmspool arrives with the same characters.
 
 ## 8. What is not there
 
-- The 1405/1311 disk instructions stop with "device not installed".
-- Column binary (RCB/PCB) reads and punches as ordinary BCD.
 - Stacker selection is accepted, but all cards go to one output.
-- No macros (IOCS, `MA` macro library).  Only location counter 0.
-- Timing is not simulated: the emulator runs as fast as it can.
+- No IOCS macro library: the macro processor is there, but no IBM macros
+  come with it.  MA is always the machine's Modify Address.
+- No linker and no relocatable output: relocatable location counters are
+  placed by AUTOCODR in the one assembly.
+- The 1311's write-address key is always on (track writes with addresses
+  are allowed); the 1405 is always a Model 2 with both access arms.
+- Disk and seek timing are not simulated, so the disk-busy indicator never
+  turns on.  The emulator runs as fast as it can.

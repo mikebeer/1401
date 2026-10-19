@@ -4,7 +4,8 @@
 /*                                                                      */
 /* On MAINT's A-disk: IBM1401 and AUTOCODR as MODULE (or TEXT, which    */
 /* is LOADed and GENMODed here), the EXECs RUN1401 SEND1401 SRV1401     */
-/* MK1401 G1401PRO DIR1401, and the samples (filetype AUTOCODE).        */
+/* MK1401 G1401PRO DIR1401, the samples (filetype AUTOCODE) and the    */
+/* library macros (filetype MACRO).                                     */
 /* (MK1401 goes to 19E too, to rebuild the modules from the C.)        */
 /*  1. the modules, RUN1401, SEND1401, SRV1401 and the samples go to    */
 /*     19E (file mode 2, so every user sees them);                      */
@@ -12,7 +13,7 @@
 /*     formatted if new and gets PROFILE EXEC (G1401PRO), and the guest */
 /*     is started with AUTOLOG;                                         */
 /*  3. AUTOLOG: AUTOLOG1's PROFILE EXEC starts IBM1401 at every IPL.    */
-/* Build 1.                                                             */
+/* Build 2.                                                             */
 arg . '(' opt
 guest = (wordpos('NOGUEST', opt) = 0)
 autolog = (wordpos('AUTOLOG', opt) > 0)
@@ -64,17 +65,21 @@ do while files <> ''
   if rc = 0 then n = n + 1
   else do; say 'INST1401: COPYFILE' f1 f2 'rc' rc; bad = bad + 1; end
 end
-'MAKEBUF'
-'LISTFILE * AUTOCODE A (STACK'
-do while queued() > 0
-  parse pull f1 f2 .
-  'COPYFILE' f1 f2 'A = = D2 (REPLACE OLDDATE'
-  if rc = 0 then n = n + 1
+do j = 1 to 2      /* samples, and library macros for every user */
+  'MAKEBUF'
+  'SET CMSTYPE HT'
+  'LISTFILE *' word('AUTOCODE MACRO', j) 'A (STACK'
+  'SET CMSTYPE RT'
+  do while queued() > 0
+    parse pull f1 f2 .
+    'COPYFILE' f1 f2 'A = = D2 (REPLACE OLDDATE'
+    if rc = 0 then n = n + 1
+  end
+  'DROPBUF'
 end
-'DROPBUF'
-do i = 1 to 2      /* the samples' data, if they came along */
-  f = word('T05CARDS DATA T07CONS CONSOLE', 2 * i - 1) ,
-      word('T05CARDS DATA T07CONS CONSOLE', 2 * i)
+dat = 'T05CARDS DATA T07CONS CONSOLE T10COLBN DATA'
+do i = 1 to words(dat) % 2  /* the samples' data, if they came along */
+  f = word(dat, 2 * i - 1) word(dat, 2 * i)
   'SET CMSTYPE HT'
   'STATE' f 'A'
   src = rc

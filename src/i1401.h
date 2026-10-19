@@ -135,7 +135,7 @@ int io_carriage(int mod);
 int io_console(int flag, int mod);
 int io_tape(int unit, int flag, int mod);
 int io_tape_func(int unit, int flag, int mod);
-int io_disk(int fnc, int flag, int mod); /* disk.c */
+int io_disk(int fnc, int flag, int mod);           /* disk.c */
 int disk_attach_pack(int drive, const char *name); /* 1311 drive 0-4 */
 int disk_attach_ramac(const char *name);           /* 1405 */
 int disk_close(void);

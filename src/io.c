@@ -104,8 +104,9 @@ static void hol_init(void)
         } else if (d <= 9)
             p |= 1 << (9 - d);
         else if (d == 10)
-            p = z == 0 ? 1 << 9 : z == 1 ? (1 << 9) | (1 << 7) | (1 << 1)
-                                         : zone[z] | (1 << 9);
+            p = z == 0   ? 1 << 9
+                : z == 1 ? (1 << 9) | (1 << 7) | (1 << 1)
+                         : zone[z] | (1 << 9);
         else
             p |= (1 << (9 - (d - 8))) | (1 << 1); /* 3-8 ... 7-8 */
         hol[c] = p;
@@ -140,8 +141,8 @@ static int read_colbin(void)
         c2 = TOBCD(buf[cb_old() ? 80 + i : 2 * i + 1]) & CHARM;
         m.M[401 + i] = (unsigned char)((m.M[401 + i] & WM) | c1);
         m.M[501 + i] = (unsigned char)((m.M[501 + i] & WM) | c2);
-        m.M[1 + i] = (unsigned char)((m.M[1 + i] & WM) |
-                                     colbin_to_bcd((c1 << 6) | c2));
+        m.M[1 + i] =
+            (unsigned char)((m.M[1 + i] & WM) | colbin_to_bcd((c1 << 6) | c2));
     }
     return STOP_NONE;
 }

@@ -1,7 +1,8 @@
 #!/bin/sh
 # mkkit.sh N - make the installable kit build N: dist/IBM1401-kit-bN.zip
 #   CMS/  every CMS file under its CMS name (FN.FT): the C sources, the
-#         EXECs, the samples (and the TEXT decks if tools/mkcms.sh made them)
+#         EXECs, the samples, the sample macros (FN.MACRO), and the TEXT
+#         decks if tools/mkcms.sh made them
 #   PC/   ibm1401 and autocoder for Linux x86-64 (static)
 #   README-KIT.TXT  installation and first steps
 set -e
@@ -24,7 +25,11 @@ for f in "$B"/samples/*.s "$B"/tests/src/*.s; do
 done
 cp "$B/tests/src/t05cards.dat" "$W/CMS/T05CARDS.DATA"
 cp "$B/tests/src/t07cons.con" "$W/CMS/T07CONS.CONSOLE"
-cc -std=c89 -O2 -static -o "$W/PC/ibm1401" "$B"/src/ibm1401.c "$B"/src/cpu.c "$B"/src/io.c "$B"/src/bcd.c
+cp "$B/tests/src/t10colbn.dat" "$W/CMS/T10COLBN.DATA"
+for f in "$B"/tests/mac/*; do
+  cp "$f" "$W/CMS/$(basename "$f" | tr a-z A-Z).MACRO"
+done
+cc -std=c89 -O2 -static -o "$W/PC/ibm1401" "$B"/src/ibm1401.c "$B"/src/cpu.c "$B"/src/io.c "$B"/src/disk.c "$B"/src/bcd.c
 cc -std=c89 -O2 -static -o "$W/PC/autocoder" "$B"/src/autocoder.c "$B"/src/bcd.c
 sed "s/@BUILD@/$N/g" "$B/tools/README-KIT.TXT" > "$W/README-KIT.TXT"
 cp "$B/docs/MANUAL.md" "$W/"

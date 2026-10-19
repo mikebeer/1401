@@ -18,6 +18,8 @@
 /*     *1401 SWITCH BC HALT GO TAPE1 PAYROLL LIMIT 2000000              */
 /* TAPEn name mounts the tape "name TAPE1401 A" of this machine (it     */
 /* is created if new and kept between jobs), so jobs can pass tapes.    */
+/* PACKn name mounts the 1311 pack "name PACK1311 A" on drive n (0-4),  */
+/* DISK name uses "name DISK1405 A" as the 1405 disk storage.           */
 /*                                                                      */
 /* SRV1401 CONFIG A (optional, KEY value, '*' = comment):               */
 /*   PRINT SENDER | CLASS x   printout to the sender (default) or to    */
@@ -25,7 +27,7 @@
 /*   LIMIT n                  default instruction limit (50000000)      */
 /*   INTERVAL n                                                         */
 /* A file SRV1401 STOP A ends the loop (after the current job).         */
-/* Build 1.  Needs OPTION ECMODE in the IBM1401 directory entry.        */
+/* Build 2.  Needs OPTION ECMODE in the IBM1401 directory entry.        */
 
 parse upper arg line
 opt = ''
@@ -130,6 +132,14 @@ runjob: procedure expose loud prmode prclass limit
     if left(w, 4) = 'TAPE' & length(w) = 5 then do
       parse var jopt tn jopt
       pass = pass w left(tn, 8) 'TAPE1401 A'
+    end
+    else if left(w, 4) = 'PACK' & length(w) = 5 then do
+      parse var jopt tn jopt
+      pass = pass w left(tn, 8) 'PACK1311 A'
+    end
+    else if w = 'DISK' then do
+      parse var jopt tn jopt
+      pass = pass w left(tn, 8) 'DISK1405 A'
     end
     else if w = 'LIMIT' then do
       parse var jopt v jopt

@@ -10,17 +10,19 @@
 /* Options:                                                             */
 /*   DATA fn ft [fm]   data cards behind the deck (fm A if omitted)     */
 /*   TAPEn name        mount the guest's tape "name" on unit n          */
+/*   PACKn name        mount the guest's 1311 pack "name" on drive n    */
+/*   DISK name         use the guest's 1405 disk storage "name"         */
 /*   SWITCH letters    sense switches B-G on                            */
 /*   HALT GO           a halt continues (default: the job ends)         */
 /*   LIMIT n           instruction limit for this job                   */
 /*   TO userid         another 1401 guest (default IBM1401)             */
-/* Build 1.                                                             */
+/* Build 2.                                                             */
 
 parse upper arg fn ft fm '(' opt
 if fn = '' | fn = '?' then do
   say 'SEND1401: usage: SEND1401 fn [ft [fm]] [( options]'
-  say '  options: DATA fn ft fm  TAPEn name  SWITCH x  HALT GO  LIMIT n'
-  say '           TO userid'
+  say '  options: DATA fn ft fm  TAPEn name  PACKn name  DISK name'
+  say '           SWITCH x  HALT GO  LIMIT n  TO userid'
   exit 24
 end
 opt = strip(opt, 'T', ')')
@@ -38,7 +40,8 @@ do while opt <> ''
       else do; nd = nd + 1; data.nd = f1 f2 'A'; opt = rest; end
     end
     when w = 'TO' then parse var opt guest opt
-    when left(w, 4) = 'TAPE' | wordpos(w, 'SWITCH HALT LIMIT') > 0 then do
+    when left(w, 4) = 'TAPE' | left(w, 4) = 'PACK' ,
+       | wordpos(w, 'DISK SWITCH HALT LIMIT') > 0 then do
       parse var opt v opt
       ctl = ctl w v
     end

@@ -17,11 +17,12 @@ Reference Manual* A24-1403-5 (April 1962).
 | Part | What it does |
 |---|---|
 | `src/cpu.c` | The processing unit: the full instruction set with chaining, word marks, the address registers after each operation, and editing. The special features are there too: multiply/divide, indexing and store address register, high-low-equal compare, bit test, expanded print edit, move record and modify address. Storage is 1,400 to 16,000 positions. |
-| `src/io.c` | The 1402 card read-punch: the reader takes several files as one hopper, with last card and the LOAD key. The 1403 printer: carriage tape and skip/space, plain text or ASA carriage control. The 729 tapes 1–6: SimH `.tap` or text files with one record per line, move and load mode, tape mark, backspace and rewind. The 1407 console. |
-| `src/autocoder.c` | Autocoder (the language of IBM's Tape Autocoder, C24-3319). The deck it writes is IBM's self-loading format: the clear-storage and bootstrap cards, then load cards (39 columns of data, LCA/SW/CW, `1040`), EX reloader cards and the end card. |
+| `src/io.c` | The 1402 card read-punch: the reader takes several files as one hopper, with last card and the LOAD key, and column binary (RCB/PCB). The 1403 printer: carriage tape and skip/space, plain text or ASA carriage control. The 729 tapes 1–6: SimH `.tap` or text files with one record per line, move and load mode, tape mark, backspace and rewind. The 1407 console. |
+| `src/disk.c` | The 1311 disk drive (5 drives, SimH `.dsk` packs, as SimH behaves) or the 1405 RAMAC disk storage (Model 2, as the manual describes): seek, single sector or record, full track, write check, move and load mode, the disk indicators. |
+| `src/autocoder.c` | Autocoder (the language of IBM's Tape Autocoder, C24-3319), with library macros, CALL and INCLD, and location counters 0–9 as in Van Snyder's Autocoder. The deck it writes is IBM's self-loading format: the clear-storage and bootstrap cards, then load cards (39 columns of data, LCA/SW/CW, `1040`), EX reloader cards and the end card. |
 | `cms/` | CMS EXECs: RUN1401, SEND1401, SRV1401 (the guest), G1401PRO (its PROFILE), DIR1401, INST1401, MK1401 |
 | `samples/` | HELLO and PRIMES (the 168 primes below 1000) |
-| `tests/` | Feature programs t01–t07, with expected decks from Van Snyder's Autocoder and expected output from SimH i1401; a random-program fuzzer |
+| `tests/` | Feature programs t01–t13, with expected decks from Van Snyder's Autocoder and expected output from SimH i1401 (see docs/TESTING.md for the exceptions); sample macros in `tests/mac`; a random-program fuzzer |
 
 ## On the PC
 
@@ -31,6 +32,9 @@ Reference Manual* A24-1403-5 (April 1962).
     ./autocoder samples/primes.s          # -> primes.cd (deck), primes.lst
     ./ibm1401 primes.cd                   # printout on the terminal
     ./ibm1401 deck.cd -data cards.dat -print out.txt -punch out.cd -tape1 t1.tap
+    ./ibm1401 deck.cd -pack0 master.dsk                  # a 1311 pack on drive 0
+    ./ibm1401 deck.cd -disk ramac.dsk                     # or the 1405
+    ./autocoder prog.s -maclib mymacros                   # library macros
 
 On the PC each option is written `-option`; on CMS options follow `(`.
 
@@ -49,9 +53,11 @@ for how the programs were checked.
 ## How it was checked
 
 - **Assembler:** for every test program and ROPE's seven examples, the deck
-  is card-for-card identical to Van Snyder's Autocoder (`-b I`).
-- **Emulator:** the printout, punched cards and tape records are identical
-  to SimH i1401's. This covers the feature tests, ROPE's examples (Lincoln,
+  is card-for-card identical to Van Snyder's Autocoder (`-b I`), macros and
+  location counters included.  Disk mnemonics are the exception: they
+  assemble to `%F`, as the manual has it, where Van Snyder's writes `%D`.
+- **Emulator:** the printout, punched cards, tape records and 1311 disk
+  packs are identical to SimH i1401's. This covers the feature tests, ROPE's examples (Lincoln,
   pi to 2,000 digits, Mersenne, powers of 2) and 800 randomly generated
   programs.  The test suite also passes big-endian (s390x).
 - **One known difference:** SimH stores a blank when a single quotient

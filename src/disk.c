@@ -43,7 +43,7 @@
 #define IN_DSK 030 /* Y any disk error */
 #define IN_ACC 045 /* N access inoperable */
 
-#define GMWM (WM | B_GRPMRK)
+#define GMWM       (WM | B_GRPMRK)
 #define ADDR_OK(x) ((x) >= 0 && (x) < m.memsize)
 
 static int disk_model; /* 0 none, 1311, 1405 */
@@ -546,10 +546,10 @@ static int disk_1405(int fnc, int load, int mod)
                 short_gm = 1; /* move mode: core keeps filling the record */
             }
             if (write)
-                s[1 + i] = (unsigned char)(m.M[p] & (load ? WM | CHARM : CHARM));
+                s[1 + i] =
+                    (unsigned char)(m.M[p] & (load ? WM | CHARM : CHARM));
             else if (check) {
-                if (load ? m.M[p] != d
-                         : (m.M[p] & CHARM) != (d & CHARM)) {
+                if (load ? m.M[p] != d : (m.M[p] & CHARM) != (d & CHARM)) {
                     err(IN_DPW);
                     return STOP_NONE;
                 }

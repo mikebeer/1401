@@ -12,6 +12,8 @@
 /*   PRINT             also print the printout (CP printer, PRINT (CC)  */
 /*   TYPE              also type the printout on the terminal           */
 /*   TAPEn fn ft [fm]  mount a tape on 729 unit n (1-6)                 */
+/*   PACKn fn ft [fm]  mount a 1311 disk pack on drive n (0-4)          */
+/*   DISK fn ft [fm]   the 1405 disk storage in this file               */
 /*   SWITCH letters    sense switches B-G on                            */
 /*   HALT GO|ASK       what a halt does (default: the run ends)         */
 /*   LIMIT n           stop after n instructions                        */
@@ -21,7 +23,7 @@
 /*                                                                      */
 /* Return code: IBM1401's (0 halt, 4 reader empty, 8 limit, 12 machine  */
 /* check, 20 file error), or AUTOCODR's if the assembly failed.         */
-/* Build 1.                                                             */
+/* Build 2.                                                             */
 
 parse arg fn ft fm '(' opt
 parse upper var fn fn
@@ -30,7 +32,8 @@ parse upper var fm fm
 parse upper var opt opt
 if fn = '' | fn = '?' then do
   say 'RUN1401: usage: RUN1401 fn [ft [fm]] [( options]'
-  say '  options: DATA fn ft fm  PRINT  TYPE  TAPEn fn ft fm  SWITCH x'
+  say '  options: DATA fn ft fm  PRINT  TYPE  TAPEn fn ft fm  PACKn fn ft fm'
+  say '           DISK fn ft fm  SWITCH x'
   say '           HALT GO|ASK  LIMIT n  SIZE n  ENCODING A|H|S  LOUD'
   exit 24
 end
@@ -44,14 +47,15 @@ do while opt <> ''
     when w = 'LOUD'  then loud = 1
     when w = 'PRINT' then doprint = 1
     when w = 'TYPE'  then dotype = 1
-    when w = 'DATA' | left(w, 4) = 'TAPE' then do
+    when w = 'DATA' | left(w, 4) = 'TAPE' | left(w, 4) = 'PACK' ,
+       | w = 'DISK' then do
       parse var opt f1 f2 rest
       parse var rest f3 rest2
       if isfm(f3) | f3 = '*' then opt = rest2
       else opt = rest
       if isfm(f3) then pass = pass w f1 f2 f3
       else if w = 'DATA' then pass = pass w f1 f2   /* any disk */
-      else pass = pass w f1 f2 'A'                   /* a tape may be new */
+      else pass = pass w f1 f2 'A'           /* a tape or disk may be new */
     end
     when w = 'ENCODING' | w = 'ENC' then do
       parse var opt enc opt

@@ -2,5 +2,5 @@
 #ifndef VERSION_H
 #define VERSION_H
 #define VERSION "1.0"
-#define BUILD   "1"
+#define BUILD   "2"
 #endif

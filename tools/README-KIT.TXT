@@ -36,6 +36,14 @@ First steps (any CMS user)
    RUN1401 T05CARDS ( DATA T05CARDS DATA *    with data cards
    SEND1401 PRIMES               on the 1401 guest: the printout comes
                                  back to your reader, with a message
+   RUN1401 T08PACK ( PACK0 T08 PACK1311 A TYPE     a 1311 disk pack
+   RUN1401 T09RAMAC ( DISK T09 DISK1405 A TYPE     the 1405 RAMAC
+   RUN1401 T10COLBN ( DATA T10COLBN DATA * TYPE    column binary
+   RUN1401 T13MACRO ( TYPE       library macros (PRCON MACRO etc.)
+
+New in build 2: the 1311 and 1405 disks (PACKn, DISK), column binary
+(RCB, PCB, MBC, MBD), Autocoder location counters LC 0-9, library
+macros (fn MACRO on any disk), CALL and INCLD.  See MANUAL.md.
 
 On the PC
 ---------

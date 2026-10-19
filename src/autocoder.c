@@ -72,9 +72,8 @@ typedef struct {
    64-68): seek 0, single record 1, full track 2, write check 3 */
 static int disk_fn(const char *op)
 {
-    static const char *const fn[] = {"SD",  "RD",   "RDW", "WD",   "WDW",
-                                     "RDT", "RDTW", "WDT", "WDTW", "WDC",
-                                     "WDCW"};
+    static const char *const fn[] = {"SD",   "RD",  "RDW",  "WD",  "WDW", "RDT",
+                                     "RDTW", "WDT", "WDTW", "WDC", "WDCW"};
     static const int dg[] = {0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3};
     int i;
     for (i = 0; i < 11; i++)
@@ -843,7 +842,7 @@ static int lc_hasx00[NLC]; /* R,X00+n */
 static long lc_x00[NLC];   /* n */
 static char lc_xsym[NLC][7];
 static long lc_xoff[NLC];
-static long lc_base[NLC];  /* relocatable: where it starts */
+static long lc_base[NLC]; /* relocatable: where it starts */
 
 static void lc_stmt(Stmt *s, int *pos)
 {
@@ -938,8 +937,7 @@ static int lc_place(void)
             lc_hi[i] > top)
             top = lc_hi[i];
     for (i = 1; i < NLC; i++) {
-        if (lc_p[i] < 0 || (lc_kind[i] != 'R' && lc_kind[i] != 'X'))
-            continue;
+        if (lc_p[i] < 0 || (lc_kind[i] != 'R' && lc_kind[i] != 'X')) continue;
         size = lc_hi[i] - lc_base[i];
         if (lc_kind[i] == 'X') {
             long v = sym_value(sym_find(lc_xsym[i]));
@@ -2389,7 +2387,7 @@ static int model_stmt(char *buf, const char *al, const int *a)
     if (!memcmp(buf + 6, ")00   ", 6)) memcpy(buf + 6, al + 6, 7);
     i = 0;
     for (;;) {
-        char *q = memchr(buf + i + 1, ')', 80 - i > 0 ? 80 - i : 0);
+        char *q = (char *)memchr(buf + i + 1, ')', 80 - i > 0 ? 80 - i : 0);
         if (!q) break;
         l = (int)(q - buf);
         z = arg_code(buf + l, &num);
@@ -2590,10 +2588,9 @@ int main(int argc, char **argv)
                 nmaclib++;
             }
             i++;
-        }
-        else if ((!strcmp(kw, "ENCODING") || !strcmp(kw, "ENC") ||
-                  !strcmp(kw, "E")) &&
-                 i < argc) {
+        } else if ((!strcmp(kw, "ENCODING") || !strcmp(kw, "ENC") ||
+                    !strcmp(kw, "E")) &&
+                   i < argc) {
             if (bcd_set_encoding(argv[i++][0])) {
                 fprintf(stderr, "AUTOCODR: encoding must be A, H or S\n");
                 return 12;
