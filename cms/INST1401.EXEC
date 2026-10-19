@@ -5,6 +5,7 @@
 /* On MAINT's A-disk: IBM1401 and AUTOCODR as MODULE (or TEXT, which    */
 /* is LOADed and GENMODed here), the EXECs RUN1401 SEND1401 SRV1401     */
 /* MK1401 G1401PRO DIR1401, and the samples (filetype AUTOCODE).        */
+/* (MK1401 goes to 19E too, to rebuild the modules from the C.)        */
 /*  1. the modules, RUN1401, SEND1401, SRV1401 and the samples go to    */
 /*     19E (file mode 2, so every user sees them);                      */
 /*  2. unless NOGUEST: DIR1401 adds the IBM1401 user, its 191 is        */
@@ -30,7 +31,7 @@ do i = 1 to 2
     src = rc
     'SET CMSTYPE RT'
     if src = 0 then do
-      'LOAD' m '(CLEAR NOMAP'
+      'LOAD' m '(CLEAR NOMAP NOTYPE'
       if rc = 0 then 'GENMOD' m
       if rc <> 0 then do
         say 'INST1401: LOAD/GENMOD' m 'rc' rc
@@ -81,9 +82,25 @@ if guest then do
   'SET CMSTYPE HT'
   'CP FORCE IBM1401'
   'SET CMSTYPE RT'
-  'WAKEUP +000005 (QUIET'
-  'CP LINK IBM1401 191 391 MR MULT'
-  if rc <> 0 then exit rc
+  /* wait until it is gone, so the 191 can be linked R/W */
+  rw = 0
+  do t = 1 to 6 while \rw
+    'WAKEUP +000005 (QUIET'
+    'SET CMSTYPE HT'
+    'CP DETACH 391'
+    'CP LINK IBM1401 191 391 MR MULT'
+    'SET CMSTYPE RT'
+    'MAKEBUF'
+    'EXECIO * CP (STRING QUERY VIRTUAL 391'
+    l = ''
+    if queued() > 0 then parse pull l
+    'DROPBUF'
+    rw = (pos('R/W', l) > 0)
+  end
+  if \rw then do
+    say 'INST1401: cannot link IBM1401 191 R/W:' l
+    exit 8
+  end
   'SET CMSTYPE HT'
   'ACCESS 391 B'
   src = rc
@@ -95,32 +112,54 @@ if guest then do
     if rc <> 0 then exit rc
   end
   'COPYFILE G1401PRO EXEC A PROFILE EXEC B (REPLACE'
+  crc = rc
   'RELEASE B'
   'CP DETACH 391'
+  if crc <> 0 then do
+    say 'INST1401: COPYFILE of the PROFILE rc' crc
+    exit crc
+  end
   'CP AUTOLOG IBM1401 IBM1401'
-  say 'INST1401: the guest IBM1401 is started'
+  if rc = 0 then say 'INST1401: the guest IBM1401 is started'
+  else say 'INST1401: AUTOLOG IBM1401 rc' rc
 end
 if autolog then do
   'CP LINK AUTOLOG1 191 391 MR'
+  if rc <> 0 then do; say 'INST1401: cannot link AUTOLOG1 191'; exit 8; end
   'ACCESS 391 B'
+  if rc <> 0 then do; 'CP DETACH 391'; exit 8; end
   'EXECIO * DISKR PROFILE EXEC B (FINIS STEM P.'
+  if rc <> 0 then do
+    say 'INST1401: cannot read AUTOLOG1 PROFILE EXEC'
+    'RELEASE B'; 'CP DETACH 391'
+    exit 8
+  end
   have = 0
   do i = 1 to p.0
     if pos('AUTOLOG IBM1401', p.i) > 0 then have = 1
   end
   if \have then do
     'MAKEBUF'
+    ins = 0
     do i = 1 to p.0
-      if pos('CP WNG OPERATOR AUTOLOG1 DONE', p.i) = 1 then do
+      if \ins & (pos('CP WNG OPERATOR AUTOLOG1 DONE', p.i) = 1 | ,
+                 pos('CP LOGOFF', p.i) = 1) then do
         queue '* THE IBM 1401 GUEST'
         queue 'CP AUTOLOG IBM1401 IBM1401'
+        ins = 1
       end
       queue p.i
     end
+    if \ins then do
+      queue '* THE IBM 1401 GUEST'
+      queue 'CP AUTOLOG IBM1401 IBM1401'
+    end
     'ERASE PROFILE EXEC B'
     'EXECIO' queued() 'DISKW PROFILE EXEC B 0 F 80 (FINIS'
+    wrc = rc
     'DROPBUF'
-    say 'INST1401: AUTOLOG1 starts IBM1401 at IPL'
+    if wrc = 0 then say 'INST1401: AUTOLOG1 starts IBM1401 at IPL'
+    else say 'INST1401: writing AUTOLOG1 PROFILE EXEC rc' wrc
   end
   'RELEASE B'
   'CP DETACH 391'

@@ -36,6 +36,7 @@ once = (wordpos('ONCE', opt) > 0)
 interval = 60
 i = wordpos('INTERVAL', opt)
 if i > 0 then interval = word(opt, i + 1)
+if \datatype(interval, 'W') then interval = 60
 
 prmode = 'SENDER'; prclass = 'A'; limit = 50000000
 'MAKEBUF'
@@ -59,7 +60,7 @@ do while queued() > 0
 end
 'DROPBUF'
 
-'CP SPOOL READER NOHOLD'
+'CP SPOOL READER NOCONT NOHOLD'
 if loud then say 'SRV1401: started, printout to' prmode prclass', limit' limit
 jobs = 0
 nowake = 0
@@ -83,16 +84,16 @@ runjob: procedure expose loud prmode prclass limit
   parse arg org, sid
   'SET CMSTYPE HT'
   'ERASE JOB1401 CARDS A'
-  'ERASE JOB1401 DECK A'
   'ERASE JOB1401 LIST1403 A'
   'ERASE JOB1401 PUN1403 A'
   'ERASE JOB1401 CON1401 A'
   'SET CMSTYPE RT'
   'READCARD JOB1401 CARDS A (NOHEADER'
-  if rc <> 0 then do
-    say 'SRV1401: READCARD rc' rc', purging spool file' sid 'from' org
+  crc = rc
+  if crc <> 0 then do
+    say 'SRV1401: READCARD rc' crc', purging spool file' sid 'from' org
     'CP PURGE READER' sid
-    'CP MSG' org 'IBM1401: your file' sid 'could not be read (rc' rc')'
+    'CP MSG' org 'IBM1401: your file' sid 'could not be read (rc' crc')'
     return
   end
   /* an optional control card "*1401 options" */
@@ -117,6 +118,10 @@ runjob: procedure expose loud prmode prclass limit
     if k > 0 then 'EXECIO' k 'DISKW JOB1401 CARDS A 0 F 80 (FINIS'
   end
   'DROPBUF'
+  if k = 0 then do
+    'CP MSG' org 'IBM1401: job' sid 'had no cards'
+    return
+  end
   /* tapes: TAPEn name -> name TAPE1401 A; LIMIT default */
   pass = ''
   haslimit = 0
@@ -202,6 +207,7 @@ nextfile: procedure
     parse pull row
     w1 = word(row, 1)
     if w1 = '' | w1 = 'ORIGINID' | w1 = 'NO' then iterate
+    if wordpos('HOLD', row) > 0 then iterate     /* READCARD skips it */
     if res = '' then res = w1 word(row, 2)
   end
   'DROPBUF'
@@ -209,7 +215,9 @@ nextfile: procedure
 
 /* wait for the next reader file */
 nap:
-  'WAKEUP +' || right(interval, 6, '0') || ' (RDR QUIET'
+  hms = right(interval % 3600, 2, '0') || ,
+        right(interval // 3600 % 60, 2, '0') || right(interval // 60, 2, '0')
+  'WAKEUP +' || hms || ' (RDR QUIET'
   if rc = 1 | rc = 28 | rc < 0 then do
     if \nowake then say 'SRV1401: WAKEUP not available, polling'
     nowake = 1

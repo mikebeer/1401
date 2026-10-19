@@ -35,6 +35,7 @@ if fn = '' | fn = '?' then do
   exit 24
 end
 opt = strip(opt, 'T', ')')
+if fm = '*' then fm = ''
 
 loud = 0; doprint = 0; dotype = 0; pass = ''; enc = ''
 do while opt <> ''
@@ -46,14 +47,11 @@ do while opt <> ''
     when w = 'DATA' | left(w, 4) = 'TAPE' then do
       parse var opt f1 f2 rest
       parse var rest f3 rest2
-      if isfm(f3) then do
-        pass = pass w f1 f2 f3
-        opt = rest2
-      end
-      else do
-        pass = pass w f1 f2
-        opt = rest
-      end
+      if isfm(f3) | f3 = '*' then opt = rest2
+      else opt = rest
+      if isfm(f3) then pass = pass w f1 f2 f3
+      else if w = 'DATA' then pass = pass w f1 f2   /* any disk */
+      else pass = pass w f1 f2 'A'                   /* a tape may be new */
     end
     when w = 'ENCODING' | w = 'ENC' then do
       parse var opt enc opt
@@ -72,8 +70,11 @@ end
 
 /* assemble fn AUTOCODE unless a deck was named */
 if ft = '' then do
+  'SET CMSTYPE HT'
   'STATE' fn 'AUTOCODE *'
-  if rc = 0 then ft = 'AUTOCODE'
+  src = rc
+  'SET CMSTYPE RT'
+  if src = 0 then ft = 'AUTOCODE'
   else ft = 'DECK'
 end
 if ft <> 'DECK' then do
@@ -92,13 +93,13 @@ else deck = fn 'DECK' fm
 'ERASE' fn 'LIST1403 A'
 'ERASE' fn 'PUN1403 A'
 'SET CMSTYPE RT'
-if loud then say 'RUN1401: IBM1401' deck '( PRINT' fn 'LIST1403 A ASA' pass
-'IBM1401' deck '( PRINT' fn 'LIST1403 A ASA PUNCH' fn 'PUN1403 A' pass
+cmd = 'IBM1401' deck '( PRINT' fn 'LIST1403 A ASA PUNCH' fn 'PUN1403 A' pass
+if loud then say 'RUN1401:' cmd
+cmd
 src = rc
 
 /* punch file: keep it only if something was punched */
-'STATE' fn 'PUN1403 A'
-if rc = 0 then do
+if exists(fn 'PUN1403 A') then do
   'MAKEBUF'
   'EXECIO 1 DISKR' fn 'PUN1403 A 1 (FINIS'
   erc = rc
@@ -108,13 +109,21 @@ if rc = 0 then do
   end
   else say 'RUN1401: punched cards in' fn 'PUN1403 A'
 end
-'STATE' fn 'LIST1403 A'
-if rc = 0 then do
+if exists(fn 'LIST1403 A') then do
   if doprint then 'PRINT' fn 'LIST1403 A (CC'
   if dotype then 'TYPE' fn 'LIST1403 A'
   if \doprint & \dotype then say 'RUN1401: printout in' fn 'LIST1403 A'
 end
 exit src
+
+/* does the file exist (quietly) */
+exists: procedure
+  parse arg fid
+  'SET CMSTYPE HT'
+  'STATE' fid
+  src = rc
+  'SET CMSTYPE RT'
+  return src = 0
 
 /* a CMS file mode: a letter and at most a digit */
 isfm: procedure

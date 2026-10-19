@@ -5,11 +5,16 @@
 /* how to start it, so the 191 can be looked after.                     */
 'CP SET RUN ON'
 'CP SET MSG ON'
-'CP SPOOL CONSOLE START'
+'MAKEBUF'
 'EXECIO * CP (STRING QUERY USERID'
-parse pull me .
-'EXECIO * CP (STRING QUERY USERS' me
-parse pull line
+me = 'IBM1401'
+if queued() > 0 then parse pull me .
+'DROPBUF'
+'MAKEBUF'
+'EXECIO * CP (STRING QUERY' me
+line = ''
+if queued() > 0 then parse pull line
+'DROPBUF'
 if pos('DSC', line) > 0 then do
   'EXEC SRV1401'
   'CP LOGOFF'

@@ -12,3 +12,4 @@ t03ex    S
 t06misc  S
 hello    A
 primes   A
+t07cons  A

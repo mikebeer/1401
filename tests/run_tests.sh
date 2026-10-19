@@ -21,9 +21,11 @@ while read n e; do
   cmp -s $W/$n.cd expect/$n.$e.cd; check "$n.$e.deck" $?
   in=$W/$n.cd; [ -f src/$n.dat ] && in="$W/$n.cd src/$n.dat"
   rm -f $W/$n.tap
-  $B/ibm1401 $in -enc $e -print $W/$n.prt -punch $W/$n.pun -tape1 $W/$n.tap -quiet -limit 10000000 </dev/null
+  con=""; [ -f src/$n.con ] && con="-console src/$n.con -conout $W/$n.con"
+  $B/ibm1401 $in -enc $e -print $W/$n.prt -punch $W/$n.pun -tape1 $W/$n.tap $con -quiet -limit 10000000 </dev/null
   cmp -s $W/$n.prt expect/$n.$e.prt; check "$n.$e.print" $?
   if [ -f expect/$n.$e.pun ]; then cmp -s $W/$n.pun expect/$n.$e.pun; check "$n.$e.punch" $?; fi
+  if [ -f expect/$n.$e.con ]; then cmp -s $W/$n.con expect/$n.$e.con; check "$n.$e.console" $?; fi
   if [ -f expect/$n.$e.tap ]; then python3 -I tapcmp.py $W/$n.tap expect/$n.$e.tap; check "$n.$e.tape" $?; fi
 done < "$W/list"
 # ASA carriage control output (VM spool / CMS PRINT ( CC)

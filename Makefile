@@ -4,10 +4,10 @@ CFLAGS = -std=c89 -pedantic -Wall -Wextra -O2
 
 all: ibm1401 autocoder
 
-ibm1401: src/ibm1401.c src/cpu.c src/io.c src/bcd.c src/i1401.h src/bcd.h
+ibm1401: src/ibm1401.c src/cpu.c src/io.c src/bcd.c src/i1401.h src/bcd.h src/version.h
 	$(CC) $(CFLAGS) -o $@ src/ibm1401.c src/cpu.c src/io.c src/bcd.c
 
-autocoder: src/autocoder.c src/bcd.c src/bcd.h
+autocoder: src/autocoder.c src/bcd.c src/bcd.h src/version.h
 	$(CC) $(CFLAGS) -o $@ src/autocoder.c src/bcd.c
 
 test: all

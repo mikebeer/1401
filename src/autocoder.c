@@ -46,8 +46,8 @@
 #include <string.h>
 #include <ctype.h>
 #include "bcd.h"
+#include "version.h"
 
-#define VERSION  "1.0"
 #define MAXLINES 30000
 #define MAXSYMS  8000
 #define MAXLITS  4000
@@ -2050,12 +2050,12 @@ int main(int argc, char **argv)
         (void)ieq;
     }
     if (!src) {
-        fprintf(stderr,
-                "AUTOCODR " VERSION " - IBM 1401 Autocoder for VM/370plus\n"
-                "usage: AUTOCODR source ( options\n"
-                "  DECK file | NODECK   LIST file | NOLIST\n"
-                "  ENCODING A|H|S   BOOT I|N   SIZE n\n"
-                "on the PC each option may be written -option\n");
+        fprintf(stderr, "AUTOCODR " VERSION " BUILD " BUILD
+                        " - IBM 1401 Autocoder for VM/370plus\n"
+                        "usage: AUTOCODR source ( options\n"
+                        "  DECK file | NODECK   LIST file | NOLIST\n"
+                        "  ENCODING A|H|S   BOOT I|N   SIZE n\n"
+                        "on the PC each option may be written -option\n");
         return 12;
     }
     /* default output names; on CMS "fn" alone is fn AUTOCODE (any disk) */
@@ -2173,10 +2173,12 @@ int main(int argc, char **argv)
             return 12;
         }
         fprintf(listf,
-                "AUTOCODR " VERSION "  IBM 1401 AUTOCODER  ENCODING %s\n\n",
+                "AUTOCODR " VERSION " BUILD " BUILD
+                "  IBM 1401 AUTOCODER  ENCODING %s\n\n",
                 bcd_enc_name);
-        fprintf(listf, " LINE  LABEL     OP   OPERANDS%57s"
-                       " CT  LOCN  INSTRUCTION   CARD\n\n",
+        fprintf(listf,
+                " LINE  LABEL     OP   OPERANDS%57s"
+                " CT  LOCN  INSTRUCTION   CARD\n\n",
                 "");
     }
     pass2();

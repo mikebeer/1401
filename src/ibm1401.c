@@ -23,6 +23,7 @@
  *   HALT STOP|GO|ASK what a halt instruction does (default STOP)
  *   LIMIT n          stop after n instructions
  *   TRACE [file]     trace every instruction
+ *   DUMP from to     print storage from..to at the end
  *   QUIET            no end-of-run message
  *
  * Return codes: 0 halt, 4 card reader empty, 8 instruction limit,
@@ -35,8 +36,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "i1401.h"
-
-#define VERSION "1.0"
+#include "version.h"
 
 static int ieq(const char *a, const char *b)
 {
@@ -86,15 +86,33 @@ static char *take_file(int argc, char **argv, int *i)
 #endif
 }
 
+/* a storage print: 50 positions a line, word marks as 1 below */
+static void storage_dump(long from, long to)
+{
+    long a, k;
+    if (from < 0) from = 0;
+    if (to >= m.memsize) to = m.memsize - 1;
+    from -= from % 50;
+    for (a = from; a <= to; a += 50) {
+        printf("%05ld ", a);
+        for (k = a; k < a + 50 && k < m.memsize; k++) putchar(TOCHR(m.M[k]));
+        printf("\n      ");
+        for (k = a; k < a + 50 && k < m.memsize; k++)
+            putchar((m.M[k] & WM) ? '1' : ' ');
+        printf("\n");
+    }
+}
+
 static void usage(void)
 {
     fprintf(
         stderr,
-        "IBM1401 " VERSION " - IBM 1401 emulator for VM/370plus\n"
+        "IBM1401 " VERSION " BUILD " BUILD
+        " - IBM 1401 emulator for VM/370plus\n"
         "usage: IBM1401 deck [deck ...] ( options\n"
         "  DATA file  PRINT file|*  ASA  PUNCH file  TAPEn file  RTAPEn file\n"
         "  CONSOLE file  CONOUT file  SIZE n  ENCODING A|H|S  SWITCH BCDEFG\n"
-        "  HALT STOP|GO|ASK  LIMIT n  TRACE [file]  QUIET\n"
+        "  HALT STOP|GO|ASK  LIMIT n  TRACE [file]  DUMP from to  QUIET\n"
         "on the PC each option may be written -option\n");
 }
 
@@ -105,6 +123,7 @@ int main(int argc, char **argv)
     int halt_mode = 0; /* 0 stop, 1 go, 2 ask */
     char *print_name = 0, *punch_name = 0, *trace_name = 0, *con_name = 0;
     char *conout_name = 0;
+    long dump_from = -1, dump_to = -1;
     char *tape_name[7];
     int tape_ro[7];
     int reason;
@@ -219,7 +238,10 @@ int main(int argc, char **argv)
                 trace_name = take_file(argc, argv, &i);
         } else if (ieq(kw, "QUIET"))
             quiet = 1;
-        else if (ieq(kw, "HELP") || ieq(kw, "?")) {
+        else if (ieq(kw, "DUMP") && i + 1 < argc) {
+            dump_from = atol(argv[i++]);
+            dump_to = atol(argv[i++]);
+        } else if (ieq(kw, "HELP") || ieq(kw, "?")) {
             usage();
             return 0;
         } else {
@@ -305,6 +327,7 @@ int main(int argc, char **argv)
         }
     }
     io_close();
+    if (dump_from >= 0) storage_dump(dump_from, dump_to);
 
     switch (reason) {
     case STOP_HALT: rc = 0; break;
