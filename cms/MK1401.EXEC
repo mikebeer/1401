@@ -1,0 +1,21 @@
+/* MK1401 EXEC - build IBM1401 MODULE and AUTOCODR MODULE on CMS        */
+/*   MK1401 [( LOUD]                                                    */
+/* From IBM1401 C and AUTOCODR C (each one C89 source) with the native  */
+/* GCC 13 of VM/370plus (CC EXEC: cc1, as, ld, elf2cms, LOAD, GENMOD).  */
+/* Needs a 64M machine (DEFINE STORAGE 64M, IPL CMS) and the toolchain  */
+/* (SYSROOT TAR, CC1 XIMAGE) accessed.                                  */
+arg . '(' opt
+loud = (wordpos('LOUD', opt) > 0)
+ok = 0; bad = 0
+do i = 1 to 2
+  m = word('IBM1401 AUTOCODR', i)
+  if loud then say 'MK1401: CC' m
+  'CC' m
+  if rc = 0 then ok = ok + 1
+  else do
+    bad = bad + 1
+    say 'MK1401: CC' m 'ended with rc' rc
+  end
+end
+say 'MK1401:' ok 'modules built,' bad 'failed'
+exit bad

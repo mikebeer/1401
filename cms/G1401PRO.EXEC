@@ -1,0 +1,19 @@
+/* G1401PRO EXEC - the PROFILE EXEC of the IBM 1401 guest (IBM1401)     */
+/* INST1401 copies it to IBM1401's 191 as PROFILE EXEC.                 */
+/* Started disconnected (AUTOLOG IBM1401), the machine runs SRV1401 and */
+/* takes jobs from its reader.  Logged on at a terminal, it only says   */
+/* how to start it, so the 191 can be looked after.                     */
+'CP SET RUN ON'
+'CP SET MSG ON'
+'CP SPOOL CONSOLE START'
+'EXECIO * CP (STRING QUERY USERID'
+parse pull me .
+'EXECIO * CP (STRING QUERY USERS' me
+parse pull line
+if pos('DSC', line) > 0 then do
+  'EXEC SRV1401'
+  'CP LOGOFF'
+end
+say 'IBM1401: the 1401 guest.  SRV1401 ( LOUD  starts it here;'
+say '         CP DISC then leaves it running.'
+exit 0

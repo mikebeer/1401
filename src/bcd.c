@@ -42,18 +42,20 @@ int bcd_set_encoding(int letter)
     }
     /* tolerant extras that do not collide with the selected encoding */
     {
-        static const struct { char c; unsigned char b; } extra[] = {
-            { '=', B_HASH }, { '\'', B_AT }, { '(', B_PERCNT },
-            { '+', B_AMPER }, { '#', B_HASH }, { '@', B_AT },
-            { '%', B_PERCNT }, { '&', B_AMPER }, { '|', B_RECMRK },
-            { '}', B_GRPMRK }, { '"', B_GRPMRK }, { '{', B_TAPMRK },
-            { '~', B_WMCHR }
-        };
+        static const struct {
+            char c;
+            unsigned char b;
+        } extra[] = {{'=', B_HASH},   {'\'', B_AT},    {'(', B_PERCNT},
+                     {'+', B_AMPER},  {'#', B_HASH},   {'@', B_AT},
+                     {'%', B_PERCNT}, {'&', B_AMPER},  {'|', B_RECMRK},
+                     {'}', B_GRPMRK}, {'"', B_GRPMRK}, {'{', B_TAPMRK},
+                     {'~', B_WMCHR}};
         for (i = 0; i < (int)(sizeof extra / sizeof extra[0]); i++)
             if (!strchr(e, extra[i].c))
                 chr2bcd[(unsigned char)extra[i].c] = extra[i].b;
     }
-    bcd_enc_name = (letter == 'h' || letter == 'H') ? "H" :
-                   (letter == 's' || letter == 'S') ? "S" : "A";
+    bcd_enc_name = (letter == 'h' || letter == 'H')   ? "H"
+                   : (letter == 's' || letter == 'S') ? "S"
+                                                      : "A";
     return 0;
 }

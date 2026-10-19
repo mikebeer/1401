@@ -1,0 +1,125 @@
+/* RUN1401 EXEC - run an IBM 1401 program on CMS (IBM1401 MODULE)       */
+/*                                                                      */
+/*   RUN1401 fn [ft [fm]] [( options]                                   */
+/*                                                                      */
+/* fn AUTOCODE is assembled first (AUTOCODR), unless ft says DECK; the  */
+/* deck fn DECK is then loaded with the LOAD key and run.  The printout */
+/* is kept in fn LIST1403 A with ASA carriage control, punched cards in */
+/* fn PUN1403 A.                                                        */
+/*                                                                      */
+/* Options:                                                             */
+/*   DATA fn ft [fm]   cards behind the deck (may be repeated)          */
+/*   PRINT             also print the printout (CP printer, PRINT (CC)  */
+/*   TYPE              also type the printout on the terminal           */
+/*   TAPEn fn ft [fm]  mount a tape on 729 unit n (1-6)                 */
+/*   SWITCH letters    sense switches B-G on                            */
+/*   HALT GO|ASK       what a halt does (default: the run ends)         */
+/*   LIMIT n           stop after n instructions                        */
+/*   SIZE n            core storage (default 16000)                     */
+/*   ENCODING A|H|S    character encoding (default A)                   */
+/*   LOUD              tell what happens                                */
+/*                                                                      */
+/* Return code: IBM1401's (0 halt, 4 reader empty, 8 limit, 12 machine  */
+/* check, 20 file error), or AUTOCODR's if the assembly failed.         */
+/* Build 1.                                                             */
+
+parse arg fn ft fm '(' opt
+parse upper var fn fn
+parse upper var ft ft
+parse upper var fm fm
+parse upper var opt opt
+if fn = '' | fn = '?' then do
+  say 'RUN1401: usage: RUN1401 fn [ft [fm]] [( options]'
+  say '  options: DATA fn ft fm  PRINT  TYPE  TAPEn fn ft fm  SWITCH x'
+  say '           HALT GO|ASK  LIMIT n  SIZE n  ENCODING A|H|S  LOUD'
+  exit 24
+end
+opt = strip(opt, 'T', ')')
+
+loud = 0; doprint = 0; dotype = 0; pass = ''; enc = ''
+do while opt <> ''
+  parse var opt w opt
+  select
+    when w = 'LOUD'  then loud = 1
+    when w = 'PRINT' then doprint = 1
+    when w = 'TYPE'  then dotype = 1
+    when w = 'DATA' | left(w, 4) = 'TAPE' then do
+      parse var opt f1 f2 rest
+      parse var rest f3 rest2
+      if isfm(f3) then do
+        pass = pass w f1 f2 f3
+        opt = rest2
+      end
+      else do
+        pass = pass w f1 f2
+        opt = rest
+      end
+    end
+    when w = 'ENCODING' | w = 'ENC' then do
+      parse var opt enc opt
+      pass = pass 'ENCODING' enc
+    end
+    when w = 'SWITCH' | w = 'HALT' | w = 'LIMIT' | w = 'SIZE' then do
+      parse var opt v opt
+      pass = pass w v
+    end
+    otherwise do
+      say 'RUN1401: unknown option' w
+      exit 24
+    end
+  end
+end
+
+/* assemble fn AUTOCODE unless a deck was named */
+if ft = '' then do
+  'STATE' fn 'AUTOCODE *'
+  if rc = 0 then ft = 'AUTOCODE'
+  else ft = 'DECK'
+end
+if ft <> 'DECK' then do
+  fid = fn ft fm
+  if enc <> '' then 'AUTOCODR' fid '( ENCODING' enc
+  else 'AUTOCODR' fid
+  if rc <> 0 then do
+    say 'RUN1401: assembly of' fn ft 'ended with rc' rc', see' fn 'LISTING A'
+    exit rc
+  end
+  deck = fn 'DECK A'
+end
+else deck = fn 'DECK' fm
+
+'SET CMSTYPE HT'
+'ERASE' fn 'LIST1403 A'
+'ERASE' fn 'PUN1403 A'
+'SET CMSTYPE RT'
+if loud then say 'RUN1401: IBM1401' deck '( PRINT' fn 'LIST1403 A ASA' pass
+'IBM1401' deck '( PRINT' fn 'LIST1403 A ASA PUNCH' fn 'PUN1403 A' pass
+src = rc
+
+/* punch file: keep it only if something was punched */
+'STATE' fn 'PUN1403 A'
+if rc = 0 then do
+  'MAKEBUF'
+  'EXECIO 1 DISKR' fn 'PUN1403 A 1 (FINIS'
+  erc = rc
+  'DROPBUF'
+  if erc <> 0 then do
+    'SET CMSTYPE HT'; 'ERASE' fn 'PUN1403 A'; 'SET CMSTYPE RT'
+  end
+  else say 'RUN1401: punched cards in' fn 'PUN1403 A'
+end
+'STATE' fn 'LIST1403 A'
+if rc = 0 then do
+  if doprint then 'PRINT' fn 'LIST1403 A (CC'
+  if dotype then 'TYPE' fn 'LIST1403 A'
+  if \doprint & \dotype then say 'RUN1401: printout in' fn 'LIST1403 A'
+end
+exit src
+
+/* a CMS file mode: a letter and at most a digit */
+isfm: procedure
+  parse arg m
+  if m = '' | length(m) > 2 then return 0
+  if \datatype(left(m, 1), 'U') then return 0
+  if length(m) = 2 & \datatype(substr(m, 2, 1), 'W') then return 0
+  return 1

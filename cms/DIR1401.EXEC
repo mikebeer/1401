@@ -1,0 +1,47 @@
+/* DIR1401 EXEC - add the IBM 1401 guest to USER DIRECT (on MAINT)      */
+/* The entry: user IBM1401, OPTION ECMODE (the modules run AMODE 31),   */
+/* IPL CMS, reader/punch/printer, links to 190, 19D, 19E and its own    */
+/* 191 on VM50U1 cylinders 101-110.  Run again, it rewrites the entry.  */
+/*   DIR1401 [cyl [vol]]   another place for the 191 (default 101 VM50U1)*/
+arg cyl vol .
+if cyl = '' then cyl = 101
+if vol = '' then vol = 'VM50U1'
+'EXECIO * DISKR USER DIRECT A (FINIS STEM D.'
+if rc <> 0 then exit rc
+n = 0; skip = 0
+do i = 1 to d.0
+  l = d.i
+  if pos('* IBM1401 (1401 guest)', l) = 1 then do
+    skip = 1
+    if n > 0 then if strip(left(o.n, 72)) = '*' then n = n - 1
+  end
+  if skip then do
+    if word(l, 1) = 'MDISK' & word(l, 2) = '191' then skip = 0
+    iterate
+  end
+  n = n + 1; o.n = l
+end
+e.1  = '*'
+e.2  = '* IBM1401 (1401 guest): an IBM 1401 for decks spooled to its'
+e.3  = '* reader (SEND1401 EXEC); SRV1401 EXEC runs them on IBM1401 MODULE.'
+e.4  = '*'
+e.5  = 'USER IBM1401 IBM1401 32M 64M G'
+e.6  = ' OPTION ECMODE'
+e.7  = ' IPL CMS'
+e.8  = ' CONSOLE 009 3215'
+e.9  = ' SPOOL 00C 2540 READER *'
+e.10 = ' SPOOL 00D 2540 PUNCH A'
+e.11 = ' SPOOL 00E 1403 A'
+e.12 = ' LINK MAINT 190 190 RR'
+e.13 = ' LINK MAINT 19D 19D RR'
+e.14 = ' LINK MAINT 19E 19E RR'
+e.15 = ' MDISK 191 3350' right(cyl, 3, '0') '010' vol 'MR ALL WRITE MULT'
+do i = 1 to 15; n = n + 1; o.n = left(e.i, 80); end
+'COPYFILE USER DIRECT A USERB141 DIRECT A (REPLACE'
+'ERASE USER DIRECT A'
+do i = 1 to n; queue o.i; end
+'EXECIO' n 'DISKW USER DIRECT A 0 F 80 (FINIS'
+if rc <> 0 then exit rc
+'DIRECT USER DIRECT A'
+say 'DIR1401: RC' rc
+exit rc

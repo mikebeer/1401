@@ -10,3 +10,5 @@ t06misc  A
 t01arith S
 t03ex    S
 t06misc  S
+hello    A
+primes   A

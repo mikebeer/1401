@@ -1,0 +1,129 @@
+/* INST1401 EXEC - install the IBM 1401 emulator on VM/370plus (MAINT)  */
+/*                                                                      */
+/*   INST1401 [( NOGUEST AUTOLOG]                                       */
+/*                                                                      */
+/* On MAINT's A-disk: IBM1401 and AUTOCODR as MODULE (or TEXT, which    */
+/* is LOADed and GENMODed here), the EXECs RUN1401 SEND1401 SRV1401     */
+/* MK1401 G1401PRO DIR1401, and the samples (filetype AUTOCODE).        */
+/*  1. the modules, RUN1401, SEND1401, SRV1401 and the samples go to    */
+/*     19E (file mode 2, so every user sees them);                      */
+/*  2. unless NOGUEST: DIR1401 adds the IBM1401 user, its 191 is        */
+/*     formatted if new and gets PROFILE EXEC (G1401PRO), and the guest */
+/*     is started with AUTOLOG;                                         */
+/*  3. AUTOLOG: AUTOLOG1's PROFILE EXEC starts IBM1401 at every IPL.    */
+/* Build 1.                                                             */
+arg . '(' opt
+guest = (wordpos('NOGUEST', opt) = 0)
+autolog = (wordpos('AUTOLOG', opt) > 0)
+ok = 0; missing = 0; bad = 0
+
+/* ---- the modules ---- */
+do i = 1 to 2
+  m = word('IBM1401 AUTOCODR', i)
+  'SET CMSTYPE HT'
+  'STATE' m 'MODULE A'
+  src = rc
+  'SET CMSTYPE RT'
+  if src <> 0 then do
+    'SET CMSTYPE HT'
+    'STATE' m 'TEXT A'
+    src = rc
+    'SET CMSTYPE RT'
+    if src = 0 then do
+      'LOAD' m '(CLEAR NOMAP'
+      if rc = 0 then 'GENMOD' m
+      if rc <> 0 then do
+        say 'INST1401: LOAD/GENMOD' m 'rc' rc
+        bad = bad + 1
+        iterate
+      end
+    end
+    else do
+      say 'INST1401:' m 'MODULE (or TEXT) is missing on A'
+      missing = missing + 1
+      iterate
+    end
+  end
+  ok = ok + 1
+end
+if missing + bad > 0 then do
+  say 'INST1401: modules OK' ok', missing' missing', defective' bad
+  exit 8
+end
+
+/* ---- 19E ---- */
+'ACCESS 19E D'
+if rc <> 0 then exit rc
+files = 'IBM1401 MODULE AUTOCODR MODULE RUN1401 EXEC SEND1401 EXEC' ,
+        'SRV1401 EXEC MK1401 EXEC'
+n = 0
+do while files <> ''
+  parse var files f1 f2 files
+  'COPYFILE' f1 f2 'A = = D2 (REPLACE OLDDATE'
+  if rc = 0 then n = n + 1
+  else do; say 'INST1401: COPYFILE' f1 f2 'rc' rc; bad = bad + 1; end
+end
+'MAKEBUF'
+'LISTFILE * AUTOCODE A (STACK'
+do while queued() > 0
+  parse pull f1 f2 .
+  'COPYFILE' f1 f2 'A = = D2 (REPLACE OLDDATE'
+  if rc = 0 then n = n + 1
+end
+'DROPBUF'
+'RELEASE D'
+say 'INST1401:' n 'files on 19E'
+
+/* ---- the guest ---- */
+if guest then do
+  'EXEC DIR1401'
+  if rc <> 0 then exit rc
+  'SET CMSTYPE HT'
+  'CP FORCE IBM1401'
+  'SET CMSTYPE RT'
+  'WAKEUP +000005 (QUIET'
+  'CP LINK IBM1401 191 391 MR MULT'
+  if rc <> 0 then exit rc
+  'SET CMSTYPE HT'
+  'ACCESS 391 B'
+  src = rc
+  'SET CMSTYPE RT'
+  if src <> 0 then do
+    queue 'YES'
+    queue '1401'
+    'FORMAT 391 B'
+    if rc <> 0 then exit rc
+  end
+  'COPYFILE G1401PRO EXEC A PROFILE EXEC B (REPLACE'
+  'RELEASE B'
+  'CP DETACH 391'
+  'CP AUTOLOG IBM1401 IBM1401'
+  say 'INST1401: the guest IBM1401 is started'
+end
+if autolog then do
+  'CP LINK AUTOLOG1 191 391 MR'
+  'ACCESS 391 B'
+  'EXECIO * DISKR PROFILE EXEC B (FINIS STEM P.'
+  have = 0
+  do i = 1 to p.0
+    if pos('AUTOLOG IBM1401', p.i) > 0 then have = 1
+  end
+  if \have then do
+    'MAKEBUF'
+    do i = 1 to p.0
+      if pos('CP WNG OPERATOR AUTOLOG1 DONE', p.i) = 1 then do
+        queue '* THE IBM 1401 GUEST'
+        queue 'CP AUTOLOG IBM1401 IBM1401'
+      end
+      queue p.i
+    end
+    'ERASE PROFILE EXEC B'
+    'EXECIO' queued() 'DISKW PROFILE EXEC B 0 F 80 (FINIS'
+    'DROPBUF'
+    say 'INST1401: AUTOLOG1 starts IBM1401 at IPL'
+  end
+  'RELEASE B'
+  'CP DETACH 391'
+end
+say 'INST1401: done'
+exit 0

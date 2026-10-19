@@ -26,11 +26,16 @@ IOState io;
 
 int rdr_open_next(void)
 {
-    if (io.rdr) { if (io.rdr != stdin) fclose(io.rdr); io.rdr = 0; }
+    if (io.rdr) {
+        if (io.rdr != stdin) fclose(io.rdr);
+        io.rdr = 0;
+    }
     while (io.rdr_i < io.rdr_n) {
         const char *n = io.rdr_names[io.rdr_i++];
-        if (!strcmp(n, "-")) io.rdr = stdin;
-        else io.rdr = fopen(n, "r");
+        if (!strcmp(n, "-"))
+            io.rdr = stdin;
+        else
+            io.rdr = fopen(n, "r");
         if (io.rdr) return 0;
         fprintf(stderr, "IBM1401: cannot open card file %s\n", n);
         return -1;
@@ -80,12 +85,13 @@ int io_read_card(int ilnt, int mod)
 {
     char buf[80];
     int i;
-    (void)ilnt; (void)mod;          /* column binary (C) reads as BCD */
+    (void)ilnt;
+    (void)mod; /* column binary (C) reads as BCD */
     m.ind[IN_READ] = m.ind[IN_LST] = 0;
     if (rdr_card(buf)) return STOP_NOCARD;
     for (i = 0; i < 80; i++)
         m.M[1 + i] = (unsigned char)((m.M[1 + i] & WM) | TOBCD(buf[i]));
-    m.M[0] = 060;                   /* C A B bits in 000 */
+    m.M[0] = 060; /* C A B bits in 000 */
     io.cards_read++;
     if (hopper_empty()) m.ind[IN_LST] = 1;
     return STOP_NONE;
@@ -109,14 +115,15 @@ int io_punch_card(int ilnt, int mod)
 {
     char buf[81];
     int i, n;
-    (void)ilnt; (void)mod;
+    (void)ilnt;
+    (void)mod;
     m.ind[IN_PNCH] = 0;
     for (i = 0; i < 80; i++) buf[i] = TOCHR(m.M[101 + i]);
-    for (n = 80; n > 0 && buf[n - 1] == ' '; n--) ;
+    for (n = 80; n > 0 && buf[n - 1] == ' '; n--);
     buf[n] = 0;
-    m.M[100] = B_ZERO;              /* C 8 2 bits in 100 */
+    m.M[100] = B_ZERO; /* C 8 2 bits in 100 */
     io.cards_punched++;
-    if (!io.pun) return STOP_NONE;  /* no punch file: cards are discarded */
+    if (!io.pun) return STOP_NONE; /* no punch file: cards are discarded */
     fputs(buf, io.pun);
     fputc('\n', io.pun);
     return ferror(io.pun) ? STOP_IOERR : STOP_NONE;
@@ -124,7 +131,7 @@ int io_punch_card(int ilnt, int mod)
 
 int io_select_stacker(int mod)
 {
-    (void)mod;                      /* all cards go to the one output */
+    (void)mod; /* all cards go to the one output */
     return STOP_NONE;
 }
 
@@ -140,13 +147,17 @@ static void lpt_motion(int count, int skip)
     io.cctptr = (io.cctptr + count) % io.cctlnt;
     if (io.lpt_asa) {
         /* remember the motion; it is written before the next line */
-        if (skip && CHP(0, io.cct[io.cctptr])) io.pending_asa = -1;
-        else if (io.pending_asa >= 0) io.pending_asa += count;
+        if (skip && CHP(0, io.cct[io.cctptr]))
+            io.pending_asa = -1;
+        else if (io.pending_asa >= 0)
+            io.pending_asa += count;
     } else if (io.lpt) {
-        if (skip && CHP(0, io.cct[io.cctptr])) fputs("\n\f", io.lpt);
-        else for (i = 0; i < count; i++) fputc('\n', io.lpt);
+        if (skip && CHP(0, io.cct[io.cctptr]))
+            fputs("\n\f", io.lpt);
+        else
+            for (i = 0; i < count; i++) fputc('\n', io.lpt);
     }
-    m.ind[IN_CC9]  = CHP(9, io.cct[io.cctptr]) != 0;
+    m.ind[IN_CC9] = CHP(9, io.cct[io.cctptr]) != 0;
     m.ind[IN_CC12] = CHP(12, io.cct[io.cctptr]) != 0;
 }
 
@@ -156,9 +167,13 @@ static void lpt_put(const char *line)
     if (io.lpt_asa) {
         int p = io.pending_asa;
         char cc;
-        if (p < 0) cc = '1';
+        if (p < 0)
+            cc = '1';
         else {
-            while (p > 3) { fputs(" \n", io.lpt); p--; }
+            while (p > 3) {
+                fputs(" \n", io.lpt);
+                p--;
+            }
             cc = p == 0 ? '+' : p == 1 ? ' ' : p == 2 ? '0' : '-';
         }
         fputc(cc, io.lpt);
@@ -173,20 +188,23 @@ int io_write_line(int ilnt, int mod)
 {
     char buf[133];
     int i, n, wm, sup;
-    wm  = (ilnt == 2 || ilnt == 5) && mod == B_LOZENGE;
+    wm = (ilnt == 2 || ilnt == 5) && mod == B_LOZENGE;
     sup = (ilnt == 2 || ilnt == 5) && mod == B_S;
     m.ind[IN_LPT] = 0;
     for (i = 0; i < 132; i++) {
         int t = m.M[201 + i];
         buf[i] = wm ? ((t & WM) ? '1' : ' ') : TOCHR(t);
     }
-    for (n = 132; n > 0 && buf[n - 1] == ' '; n--) ;
+    for (n = 132; n > 0 && buf[n - 1] == ' '; n--);
     buf[n] = 0;
     lpt_put(buf);
     io.lines_printed++;
-    if (io.lines) lpt_motion(io.lines, io.lflag);
-    else if (!sup) lpt_motion(1, 0);
-    else if (io.lpt && !io.lpt_asa) fputc('\r', io.lpt);
+    if (io.lines)
+        lpt_motion(io.lines, io.lflag);
+    else if (!sup)
+        lpt_motion(1, 0);
+    else if (io.lpt && !io.lpt_asa)
+        fputc('\r', io.lpt);
     io.lines = io.lflag = 0;
     if (io.lpt && ferror(io.lpt)) return STOP_IOERR;
     return STOP_NONE;
@@ -197,7 +215,7 @@ int io_carriage(int mod)
     int i, action = (mod & ZONE) >> 4;
     mod &= DIGIT;
     switch (action) {
-    case 0:                         /* skip to channel now */
+    case 0: /* skip to channel now */
         if (mod == 0 || mod > 12 || CHP(mod, io.cct[io.cctptr])) return 0;
         for (i = 1; i < io.cctlnt + 1; i++)
             if (CHP(mod, io.cct[(io.cctptr + i) % io.cctlnt])) {
@@ -205,21 +223,23 @@ int io_carriage(int mod)
                 return 0;
             }
         return STOP_CCT;
-    case 1:                         /* space after the next print */
+    case 1: /* space after the next print */
         if (mod <= 3) {
-            io.lines = mod; io.lflag = 0;
+            io.lines = mod;
+            io.lflag = 0;
             m.ind[IN_CC9] = m.ind[IN_CC12] = 0;
         }
         return 0;
-    case 2:                         /* space now */
+    case 2: /* space now */
         if (mod <= 3) lpt_motion(mod, 0);
         return 0;
-    case 3:                         /* skip to channel after the next print */
+    case 3: /* skip to channel after the next print */
         if (mod == 0 || mod > 12) return 0;
         m.ind[IN_CC9] = m.ind[IN_CC12] = 0;
         for (i = 1; i < io.cctlnt + 1; i++)
             if (CHP(mod, io.cct[(io.cctptr + i) % io.cctlnt])) {
-                io.lines = i; io.lflag = 1;
+                io.lines = i;
+                io.lflag = 1;
                 return 0;
             }
         return STOP_CCT;
@@ -236,7 +256,10 @@ int io_console(int flag, int mod)
     m.ind[IN_INC] = 0;
     if (mod == B_R) {
         m.ind[IN_INR] = 0;
-        if (io.con_out) { fputs("1407 ENTER:\n", io.con_out); fflush(io.con_out); }
+        if (io.con_out) {
+            fputs("1407 ENTER:\n", io.con_out);
+            fflush(io.con_out);
+        }
         for (;;) {
             if (bs >= m.memsize) return STOP_WRAP;
             if (m.M[bs] == (B_GRPMRK | WM)) break;
@@ -248,7 +271,10 @@ int io_console(int flag, int mod)
             if (c == '\n') break;
             if (c == '\r') continue;
             if (flag & MD_WM) {
-                if (c == '~' && !wm_seen) { wm_seen = WM; continue; }
+                if (c == '~' && !wm_seen) {
+                    wm_seen = WM;
+                    continue;
+                }
                 m.M[bs] = (unsigned char)(wm_seen | TOBCD(c));
                 wm_seen = 0;
             } else
@@ -271,7 +297,10 @@ int io_console(int flag, int mod)
         if (bs >= m.memsize) return STOP_WRAP;
         bs++;
         m.BS = bs;
-        if (io.con_out) { fputc('\n', io.con_out); fflush(io.con_out); }
+        if (io.con_out) {
+            fputc('\n', io.con_out);
+            fflush(io.con_out);
+        }
         return STOP_NONE;
     }
     return STOP_INVM;
@@ -281,22 +310,23 @@ int io_console(int flag, int mod)
 
 int io_disk(int flag, int mod)
 {
-    (void)flag; (void)mod;
+    (void)flag;
+    (void)mod;
     return STOP_NXD;
 }
 
 /* ========================================================= 729 tapes */
 
 typedef struct {
-    long len;                       /* -1 = tape mark */
-    unsigned char *d;               /* BCD characters (6 bits) */
+    long len;         /* -1 = tape mark */
+    unsigned char *d; /* BCD characters (6 bits) */
 } TRec;
 
 typedef struct {
     char *name;
-    int   attached, readonly, dirty, tapfmt;
+    int attached, readonly, dirty, tapfmt;
     TRec *rec;
-    long  nrec, cap, pos;
+    long nrec, cap, pos;
 } Tape;
 
 static Tape tapes[7];
@@ -308,7 +338,8 @@ static int tape_add(Tape *t, long len, const unsigned char *d)
         long n = t->cap ? t->cap * 2 : 64;
         TRec *nr = (TRec *)realloc(t->rec, n * sizeof(TRec));
         if (!nr) return -1;
-        t->rec = nr; t->cap = n;
+        t->rec = nr;
+        t->cap = n;
     }
     r = &t->rec[t->nrec++];
     r->len = len;
@@ -332,14 +363,18 @@ static void tape_truncate(Tape *t, long at)
 static int ends_with_tap(const char *n)
 {
     size_t l = strlen(n);
-    return l > 4 && (n[l-4] == '.') && (n[l-3] == 't' || n[l-3] == 'T') &&
-           (n[l-2] == 'a' || n[l-2] == 'A') && (n[l-1] == 'p' || n[l-1] == 'P');
+    return l > 4 && (n[l - 4] == '.') && (n[l - 3] == 't' || n[l - 3] == 'T') &&
+           (n[l - 2] == 'a' || n[l - 2] == 'A') &&
+           (n[l - 1] == 'p' || n[l - 1] == 'P');
 }
 
 static unsigned long rd32(FILE *f, int *eof)
 {
     unsigned char b[4];
-    if (fread(b, 1, 4, f) != 4) { *eof = 1; return 0; }
+    if (fread(b, 1, 4, f) != 4) {
+        *eof = 1;
+        return 0;
+    }
     return b[0] | ((unsigned long)b[1] << 8) | ((unsigned long)b[2] << 16) |
            ((unsigned long)b[3] << 24);
 }
@@ -359,19 +394,31 @@ int tape_attach(int unit, const char *name, int readonly)
     t->attached = 1;
     t->pos = 0;
     f = fopen(name, t->tapfmt ? "rb" : "r");
-    if (!f) { t->dirty = 1; return 0; }     /* a new tape: written at the end */
+    if (!f) {
+        t->dirty = 1;
+        return 0;
+    } /* a new tape: written at the end */
     if (t->tapfmt) {
         int eof = 0;
         for (;;) {
             unsigned long l = rd32(f, &eof);
             if (eof || l == 0xFFFFFFFFUL) break;
-            if (l == 0) { tape_add(t, -1, 0); continue; }
+            if (l == 0) {
+                tape_add(t, -1, 0);
+                continue;
+            }
             l &= 0xFFFFFFL;
-            if (l > sizeof buf) { fclose(f); return -1; }
+            if (l > sizeof buf) {
+                fclose(f);
+                return -1;
+            }
             if (fread(buf, 1, (size_t)l, f) != l) break;
-            if (l & 1) getc(f);     /* pad byte */
+            if (l & 1) getc(f); /* pad byte */
             rd32(f, &eof);
-            { unsigned long i; for (i = 0; i < l; i++) buf[i] &= CHARM; }
+            {
+                unsigned long i;
+                for (i = 0; i < l; i++) buf[i] &= CHARM;
+            }
             tape_add(t, (long)l, buf);
         }
     } else {
@@ -381,8 +428,10 @@ int tape_attach(int unit, const char *name, int readonly)
             c = getc(f);
             if (c == EOF || c == '\n') {
                 if (c == EOF && n == 0) break;
-                if (n == 1 && buf[0] == B_TAPMRK) tape_add(t, -1, 0);
-                else tape_add(t, n, buf);
+                if (n == 1 && buf[0] == B_TAPMRK)
+                    tape_add(t, -1, 0);
+                else
+                    tape_add(t, n, buf);
                 n = 0;
                 if (c == EOF) break;
                 continue;
@@ -397,8 +446,10 @@ int tape_attach(int unit, const char *name, int readonly)
 
 static void wr32(FILE *f, unsigned long v)
 {
-    putc((int)(v & 255), f); putc((int)((v >> 8) & 255), f);
-    putc((int)((v >> 16) & 255), f); putc((int)((v >> 24) & 255), f);
+    putc((int)(v & 255), f);
+    putc((int)((v >> 8) & 255), f);
+    putc((int)((v >> 16) & 255), f);
+    putc((int)((v >> 24) & 255), f);
 }
 
 static void tape_save(Tape *t)
@@ -407,18 +458,26 @@ static void tape_save(Tape *t)
     long i, j;
     if (!t->attached || !t->dirty || t->readonly) return;
     f = fopen(t->name, t->tapfmt ? "wb" : "w");
-    if (!f) { fprintf(stderr, "IBM1401: cannot write tape %s\n", t->name); return; }
+    if (!f) {
+        fprintf(stderr, "IBM1401: cannot write tape %s\n", t->name);
+        return;
+    }
     for (i = 0; i < t->nrec; i++) {
         TRec *r = &t->rec[i];
         if (t->tapfmt) {
-            if (r->len < 0) { wr32(f, 0); continue; }
+            if (r->len < 0) {
+                wr32(f, 0);
+                continue;
+            }
             wr32(f, (unsigned long)r->len);
             fwrite(r->d, 1, (size_t)r->len, f);
             if (r->len & 1) putc(0, f);
             wr32(f, (unsigned long)r->len);
         } else {
-            if (r->len < 0) putc(TOCHR(B_TAPMRK), f);
-            else for (j = 0; j < r->len; j++) putc(TOCHR(r->d[j]), f);
+            if (r->len < 0)
+                putc(TOCHR(B_TAPMRK), f);
+            else
+                for (j = 0; j < r->len; j++) putc(TOCHR(r->d[j]), f);
             putc('\n', f);
         }
     }
@@ -446,14 +505,19 @@ int io_tape(int unit, int flag, int mod)
         long len;
         const unsigned char *d;
         static const unsigned char tm = B_TAPMRK;
-        if (t->pos >= t->nrec) {    /* past the end: read a tape mark */
+        if (t->pos >= t->nrec) { /* past the end: read a tape mark */
             m.ind[IN_END] = 1;
-            len = 1; d = &tm;
+            len = 1;
+            d = &tm;
         } else {
             r = &t->rec[t->pos++];
-            if (r->len < 0) { m.ind[IN_END] = 1; len = 1; d = &tm; }
-            else {
-                len = r->len; d = r->d;
+            if (r->len < 0) {
+                m.ind[IN_END] = 1;
+                len = 1;
+                d = &tm;
+            } else {
+                len = r->len;
+                d = r->d;
                 if (!(flag & MD_BIN) && len > 0 && (d[0] & CHARM) == B_TAPMRK)
                     m.ind[IN_END] = 1;
             }
@@ -466,20 +530,32 @@ int io_tape(int unit, int flag, int mod)
             c = d[i] & CHARM;
             if (!(flag & MD_BIN) && c == B_ALTBLK) c = B_BLANK;
             if (flag & MD_WM) {
-                if (c == B_WMCHR && !wm_seen) wm_seen = WM;
-                else { m.M[bs] = (unsigned char)(wm_seen | c); wm_seen = 0; }
+                if (c == B_WMCHR && !wm_seen)
+                    wm_seen = WM;
+                else {
+                    m.M[bs] = (unsigned char)(wm_seen | c);
+                    wm_seen = 0;
+                }
             } else
                 m.M[bs] = (unsigned char)((m.M[bs] & WM) | c);
             if (!wm_seen) bs++;
-            if (bs >= m.memsize) { m.BS = BADADDR | (bs % MAXMEM); return STOP_WRAP; }
+            if (bs >= m.memsize) {
+                m.BS = BADADDR | (bs % MAXMEM);
+                return STOP_WRAP;
+            }
         }
         if (m.M[bs] != (B_GRPMRK | WM)) {
-            if (flag & MD_WM) m.M[bs] = B_GRPMRK;
-            else m.M[bs] = (unsigned char)((m.M[bs] & WM) | B_GRPMRK);
+            if (flag & MD_WM)
+                m.M[bs] = B_GRPMRK;
+            else
+                m.M[bs] = (unsigned char)((m.M[bs] & WM) | B_GRPMRK);
         }
         bs++;
         m.BS = bs;
-        if (bs >= m.memsize) { m.BS = BADADDR | (bs % MAXMEM); return STOP_WRAP; }
+        if (bs >= m.memsize) {
+            m.BS = BADADDR | (bs % MAXMEM);
+            return STOP_WRAP;
+        }
         return STOP_NONE;
     }
     if (mod == B_W) {
@@ -487,11 +563,17 @@ int io_tape(int unit, int flag, int mod)
         if (t->readonly) return STOP_MTL;
         if (m.M[bs] == (B_GRPMRK | WM)) return STOP_MTZ;
         while ((c = m.M[bs++]) != (B_GRPMRK | WM)) {
-            if ((c & WM) && (flag & MD_WM) && n < (long)sizeof buf) buf[n++] = B_WMCHR;
+            if ((c & WM) && (flag & MD_WM) && n < (long)sizeof buf)
+                buf[n++] = B_WMCHR;
             if (n < (long)sizeof buf)
-                buf[n++] = (unsigned char)((((c & CHARM) == B_BLANK) && !(flag & MD_BIN))
-                                           ? B_ALTBLK : (c & CHARM));
-            if (bs >= m.memsize) { m.BS = BADADDR | (bs % MAXMEM); return STOP_WRAP; }
+                buf[n++] = (unsigned char)((((c & CHARM) == B_BLANK) &&
+                                            !(flag & MD_BIN))
+                                               ? B_ALTBLK
+                                               : (c & CHARM));
+            if (bs >= m.memsize) {
+                m.BS = BADADDR | (bs % MAXMEM);
+                return STOP_WRAP;
+            }
         }
         tape_truncate(t, t->pos);
         if (tape_add(t, n, buf)) return STOP_IOERR;
@@ -510,32 +592,30 @@ int io_tape_func(int unit, int flag, int mod)
     m.ind[IN_TAP] = 0;
     m.ind[IN_END] = 0;
     switch (mod) {
-    case B_A:                       /* diagnostic read: skip a record */
+    case B_A: /* diagnostic read: skip a record */
         if (t->pos < t->nrec) {
             TRec *r = &t->rec[t->pos++];
-            if (r->len < 0 || (!(flag & MD_BIN) && r->len > 0 &&
-                               r->d[0] == B_TAPMRK)) {
+            if (r->len < 0 ||
+                (!(flag & MD_BIN) && r->len > 0 && r->d[0] == B_TAPMRK)) {
                 if (r->len >= 0) m.ind[IN_END] = 1;
             }
         }
         return STOP_NONE;
-    case B_B:                       /* backspace */
+    case B_B: /* backspace */
         if (t->pos > 0) t->pos--;
         return STOP_NONE;
-    case B_E:                       /* skip and blank tape */
+    case B_E: /* skip and blank tape */
         if (t->readonly) return STOP_MTL;
         return STOP_NONE;
-    case B_M:                       /* write tape mark */
+    case B_M: /* write tape mark */
         if (t->readonly) return STOP_MTL;
         tape_truncate(t, t->pos);
         if (tape_add(t, -1, 0)) return STOP_IOERR;
         t->pos++;
         t->dirty = 1;
         return STOP_NONE;
-    case B_R:                       /* rewind */
-        t->pos = 0;
-        return STOP_NONE;
-    case B_U:                       /* rewind and unload */
+    case B_R: /* rewind */ t->pos = 0; return STOP_NONE;
+    case B_U: /* rewind and unload */
         t->pos = 0;
         tape_save(t);
         t->attached = 0;

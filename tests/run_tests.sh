@@ -16,7 +16,8 @@ check() {   # check label result
 grep -v '^#' tests.txt | while read n e; do echo "$n $e"; done > "$W/list"
 while read n e; do
   [ -z "$n" ] && continue
-  $B/autocoder src/$n.s -enc $e -deck $W/$n.cd -list $W/$n.lst >/dev/null 2>&1
+  src=src/$n.s; [ -f $src ] || src=../samples/$n.s
+  $B/autocoder $src -enc $e -deck $W/$n.cd -list $W/$n.lst >/dev/null 2>&1
   cmp -s $W/$n.cd expect/$n.$e.cd; check "$n.$e.deck" $?
   in=$W/$n.cd; [ -f src/$n.dat ] && in="$W/$n.cd src/$n.dat"
   rm -f $W/$n.tap

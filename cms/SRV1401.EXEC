@@ -1,0 +1,239 @@
+/* SRV1401 EXEC - the IBM 1401 guest of VM/370plus                      */
+/*                                                                      */
+/* Runs in the virtual machine IBM1401 (its PROFILE EXEC starts it).    */
+/* The machine behaves like a 1401 in a card shop: a deck spooled to    */
+/* its reader is read in with the LOAD key and run on IBM1401 MODULE;   */
+/* the 1403 printout goes back to the sender's reader (or to a system   */
+/* printer class, see CONFIG), punched cards go to the sender's reader, */
+/* and the sender gets one message with the result.                     */
+/*                                                                      */
+/*   SRV1401 [( options]                                                */
+/*     LOUD          tell what happens (default: quiet)                 */
+/*     ONCE          run what is in the reader, then end                */
+/*     INTERVAL n    seconds between reader checks (default 60)         */
+/*                                                                      */
+/* A job is one reader file: the object deck (from AUTOCODR) and its    */
+/* data cards.  SEND1401 EXEC makes such files.  An optional first card */
+/* "*1401 options" gives IBM1401 options for this job, e.g.             */
+/*     *1401 SWITCH BC HALT GO TAPE1 PAYROLL LIMIT 2000000              */
+/* TAPEn name mounts the tape "name TAPE1401 A" of this machine (it     */
+/* is created if new and kept between jobs), so jobs can pass tapes.    */
+/*                                                                      */
+/* SRV1401 CONFIG A (optional, KEY value, '*' = comment):               */
+/*   PRINT SENDER | CLASS x   printout to the sender (default) or to    */
+/*                            the system printer of spool class x       */
+/*   LIMIT n                  default instruction limit (50000000)      */
+/*   INTERVAL n                                                         */
+/* A file SRV1401 STOP A ends the loop (after the current job).         */
+/* Build 1.  Needs OPTION ECMODE in the IBM1401 directory entry.        */
+
+parse upper arg line
+opt = ''
+p = pos('(', line)
+if p > 0 then opt = substr(line, p + 1)
+loud = (wordpos('LOUD', opt) > 0)
+once = (wordpos('ONCE', opt) > 0)
+interval = 60
+i = wordpos('INTERVAL', opt)
+if i > 0 then interval = word(opt, i + 1)
+
+prmode = 'SENDER'; prclass = 'A'; limit = 50000000
+'MAKEBUF'
+'EXECIO * DISKR SRV1401 CONFIG A (FINIS'
+do while queued() > 0
+  parse pull cl
+  cl = strip(cl)
+  if cl = '' | left(cl, 1) = '*' then iterate
+  parse upper var cl ck cv cw .
+  select
+    when ck = 'PRINT' & cv = 'CLASS' & cw <> '' then do
+      prmode = 'CLASS'; prclass = cw
+    end
+    when ck = 'PRINT' then prmode = 'SENDER'
+    when ck = 'LIMIT' & datatype(cv, 'W') then limit = cv
+    when ck = 'INTERVAL' & datatype(cv, 'W') then do
+      if wordpos('INTERVAL', opt) = 0 then interval = cv
+    end
+    otherwise nop
+  end
+end
+'DROPBUF'
+
+'CP SPOOL READER NOHOLD'
+if loud then say 'SRV1401: started, printout to' prmode prclass', limit' limit
+jobs = 0
+nowake = 0
+do forever
+  do forever
+    parse value nextfile() with org sid
+    if org = '' then leave
+    jobs = jobs + 1
+    call runjob org, sid
+    if stopreq() then leave
+  end
+  if once then leave
+  if stopreq() then leave
+  call nap
+end
+if loud then say 'SRV1401: ended after' jobs 'jobs'
+exit 0
+
+/* ---- one job ------------------------------------------------------ */
+runjob: procedure expose loud prmode prclass limit
+  parse arg org, sid
+  'SET CMSTYPE HT'
+  'ERASE JOB1401 CARDS A'
+  'ERASE JOB1401 DECK A'
+  'ERASE JOB1401 LIST1403 A'
+  'ERASE JOB1401 PUN1403 A'
+  'ERASE JOB1401 CON1401 A'
+  'SET CMSTYPE RT'
+  'READCARD JOB1401 CARDS A (NOHEADER'
+  if rc <> 0 then do
+    say 'SRV1401: READCARD rc' rc', purging spool file' sid 'from' org
+    'CP PURGE READER' sid
+    'CP MSG' org 'IBM1401: your file' sid 'could not be read (rc' rc')'
+    return
+  end
+  /* an optional control card "*1401 options" */
+  jopt = ''
+  'MAKEBUF'
+  'EXECIO * DISKR JOB1401 CARDS A (FINIS'
+  n = queued()
+  k = 0
+  do i = 1 to n
+    parse pull card
+    if i = 1 & left(card, 6) = '*1401 ' then do
+      jopt = translate(substr(card, 7))
+      iterate
+    end
+    k = k + 1
+    queue card
+  end
+  if k < n then do
+    'SET CMSTYPE HT'
+    'ERASE JOB1401 CARDS A'
+    'SET CMSTYPE RT'
+    if k > 0 then 'EXECIO' k 'DISKW JOB1401 CARDS A 0 F 80 (FINIS'
+  end
+  'DROPBUF'
+  /* tapes: TAPEn name -> name TAPE1401 A; LIMIT default */
+  pass = ''
+  haslimit = 0
+  do while jopt <> ''
+    parse var jopt w jopt
+    if left(w, 4) = 'TAPE' & length(w) = 5 then do
+      parse var jopt tn jopt
+      pass = pass w left(tn, 8) 'TAPE1401 A'
+    end
+    else if w = 'LIMIT' then do
+      parse var jopt v jopt
+      pass = pass 'LIMIT' v
+      haslimit = 1
+    end
+    else if wordpos(w, 'SWITCH HALT SIZE ENCODING') > 0 then do
+      parse var jopt v jopt
+      if w = 'HALT' & v = 'ASK' then v = 'STOP'   /* nobody to ask */
+      pass = pass w v
+    end
+  end
+  if \haslimit then pass = pass 'LIMIT' limit
+  'IBM1401 JOB1401 CARDS A ( PRINT JOB1401 LIST1403 A ASA' ,
+    'PUNCH JOB1401 PUN1403 A CONOUT JOB1401 CON1401 A' pass 'QUIET'
+  jrc = rc
+  select
+    when jrc = 0  then res = 'ended with a halt'
+    when jrc = 4  then res = 'read past the last card'
+    when jrc = 8  then res = 'reached the instruction limit'
+    when jrc = 12 then res = 'stopped with a machine check'
+    otherwise          res = 'ended with rc' jrc
+  end
+  /* the printout */
+  lines = count('JOB1401 LIST1403 A')
+  if lines > 0 then do
+    if prmode = 'SENDER' then 'CP SPOOL PRINTER TO' org 'CLASS A'
+    else 'CP SPOOL PRINTER CLASS' prclass
+    'PRINT JOB1401 LIST1403 A (CC'
+    'CP CLOSE PRINTER NAME' org 'LIST1403'
+    'CP SPOOL PRINTER OFF'; 'CP SPOOL PRINTER CLASS A'
+  end
+  /* console (1407) output goes with the printout */
+  if count('JOB1401 CON1401 A') > 0 then do
+    if prmode = 'SENDER' then 'CP SPOOL PRINTER TO' org 'CLASS A'
+    else 'CP SPOOL PRINTER CLASS' prclass
+    'PRINT JOB1401 CON1401 A'
+    'CP CLOSE PRINTER NAME' org 'CON1401'
+    'CP SPOOL PRINTER OFF'; 'CP SPOOL PRINTER CLASS A'
+  end
+  /* punched cards back to the sender's reader */
+  cards = count('JOB1401 PUN1403 A')
+  if cards > 0 then do
+    'CP SPOOL PUNCH TO' org 'CLASS A'
+    'PUNCH JOB1401 PUN1403 A (NOHEADER'
+    'CP CLOSE PUNCH NAME' org 'PUN1403'
+    'CP SPOOL PUNCH OFF'
+  end
+  msg = 'IBM1401: job' sid res', printed' lines 'lines'
+  if cards > 0 then msg = msg', punched' cards 'cards'
+  'CP MSG' org msg
+  if loud then say 'SRV1401:' org msg
+  return
+
+/* number of records in a file (0 if there is none) */
+count: procedure
+  parse arg fid
+  'SET CMSTYPE HT'
+  'STATE' fid
+  src = rc
+  'SET CMSTYPE RT'
+  if src <> 0 then return 0
+  'MAKEBUF'
+  'EXECIO * DISKR' fid '(FINIS'
+  n = queued()
+  'DROPBUF'
+  return n
+
+/* "ORIGINID spoolid" of the next reader file, '' if none */
+nextfile: procedure
+  'MAKEBUF'
+  'EXECIO * CP (STRING QUERY READER ALL'
+  res = ''
+  do while queued() > 0
+    parse pull row
+    w1 = word(row, 1)
+    if w1 = '' | w1 = 'ORIGINID' | w1 = 'NO' then iterate
+    if res = '' then res = w1 word(row, 2)
+  end
+  'DROPBUF'
+  return res
+
+/* wait for the next reader file */
+nap:
+  'WAKEUP +' || right(interval, 6, '0') || ' (RDR QUIET'
+  if rc = 1 | rc = 28 | rc < 0 then do
+    if \nowake then say 'SRV1401: WAKEUP not available, polling'
+    nowake = 1
+    t1 = time('S')
+    do while elapsed(t1) < interval
+      nop
+    end
+  end
+  return
+
+/* a file SRV1401 STOP A ends the loop */
+stopreq: procedure
+  'SET CMSTYPE HT'
+  'STATE SRV1401 STOP A'
+  src = rc
+  'SET CMSTYPE RT'
+  if src = 0 then do
+    'ERASE SRV1401 STOP A'
+    return 1
+  end
+  return 0
+
+elapsed: procedure
+  parse arg t0
+  d = time('S') - t0
+  if d < 0 then d = d + 86400
+  return d

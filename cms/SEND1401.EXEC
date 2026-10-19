@@ -1,0 +1,113 @@
+/* SEND1401 EXEC - submit a job to the IBM 1401 guest (user IBM1401)    */
+/*                                                                      */
+/*   SEND1401 fn [ft [fm]] [( options]                                  */
+/*                                                                      */
+/* fn AUTOCODE is assembled first (AUTOCODR) unless ft is DECK.  The    */
+/* deck and its data cards are punched to IBM1401's reader as one file. */
+/* The printout comes back to your reader (RDRLIST shows it), punched   */
+/* cards too, and IBM1401 sends you a message with the result.          */
+/*                                                                      */
+/* Options:                                                             */
+/*   DATA fn ft [fm]   data cards behind the deck (fm A if omitted)     */
+/*   TAPEn name        mount the guest's tape "name" on unit n          */
+/*   SWITCH letters    sense switches B-G on                            */
+/*   HALT GO           a halt continues (default: the job ends)         */
+/*   LIMIT n           instruction limit for this job                   */
+/*   TO userid         another 1401 guest (default IBM1401)             */
+/* Build 1.                                                             */
+
+parse upper arg fn ft fm '(' opt
+if fn = '' | fn = '?' then do
+  say 'SEND1401: usage: SEND1401 fn [ft [fm]] [( options]'
+  say '  options: DATA fn ft fm  TAPEn name  SWITCH x  HALT GO  LIMIT n'
+  say '           TO userid'
+  exit 24
+end
+opt = strip(opt, 'T', ')')
+guest = 'IBM1401'
+ctl = ''
+nd = 0
+do while opt <> ''
+  parse var opt w opt
+  select
+    when w = 'DATA' then do
+      parse var opt f1 f2 rest
+      parse var rest f3 rest2
+      if isfm(f3) then do; nd = nd + 1; data.nd = f1 f2 f3; opt = rest2; end
+      else do; nd = nd + 1; data.nd = f1 f2 'A'; opt = rest; end
+    end
+    when w = 'TO' then parse var opt guest opt
+    when left(w, 4) = 'TAPE' | wordpos(w, 'SWITCH HALT LIMIT') > 0 then do
+      parse var opt v opt
+      ctl = ctl w v
+    end
+    otherwise do
+      say 'SEND1401: unknown option' w
+      exit 24
+    end
+  end
+end
+
+if ft = '' then do
+  'STATE' fn 'AUTOCODE *'
+  if rc = 0 then ft = 'AUTOCODE'
+  else ft = 'DECK'
+end
+if ft <> 'DECK' then do
+  if fm = '' then 'AUTOCODR' fn ft
+  else 'AUTOCODR' fn ft fm
+  if rc <> 0 then do
+    say 'SEND1401: assembly ended with rc' rc', see' fn 'LISTING A'
+    exit rc
+  end
+  deck = fn 'DECK A'
+end
+else do
+  if fm = '' then fm = 'A'
+  deck = fn 'DECK' fm
+end
+
+/* one file: control card, deck, data */
+'MAKEBUF'
+n = 0
+if ctl <> '' then do
+  queue '*1401' strip(ctl)
+  n = 1
+end
+'EXECIO * DISKR' deck '(FINIS'
+if rc <> 0 & rc <> 2 then do
+  'DROPBUF'
+  say 'SEND1401: cannot read' deck
+  exit 28
+end
+do i = 1 to nd
+  'EXECIO * DISKR' data.i '(FINIS'
+  if rc <> 0 & rc <> 2 then do
+    'DROPBUF'
+    say 'SEND1401: cannot read' data.i
+    exit 28
+  end
+end
+n = queued()
+'SET CMSTYPE HT'
+'ERASE' fn 'JOB1401 A'
+'SET CMSTYPE RT'
+'EXECIO' n 'DISKW' fn 'JOB1401 A 0 F 80 (FINIS'
+'DROPBUF'
+'CP SPOOL PUNCH TO' guest 'CLASS A'
+'PUNCH' fn 'JOB1401 A (NOHEADER'
+src = rc
+'CP CLOSE PUNCH NAME' fn 'JOB1401'
+'CP SPOOL PUNCH OFF'
+'SET CMSTYPE HT'
+'ERASE' fn 'JOB1401 A'
+'SET CMSTYPE RT'
+if src = 0 then say 'SEND1401:' n 'cards sent to' guest
+exit src
+
+isfm: procedure
+  parse arg m
+  if m = '' | length(m) > 2 then return 0
+  if \datatype(left(m, 1), 'U') then return 0
+  if length(m) = 2 & \datatype(substr(m, 2, 1), 'W') then return 0
+  return 1
