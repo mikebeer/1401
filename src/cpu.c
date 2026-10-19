@@ -730,7 +730,8 @@ check_length:
             if (!qzero) break;
             /* pass 2: left to right, zero suppression */
             do {
-                b = M[++m.BS];
+                PP(m.BS);
+                b = M[m.BS];
                 switch (b & CHARM) {
                 case B_ONE: case B_TWO: case B_THREE: case B_FOUR:
                 case B_FIVE: case B_SIX: case B_SEVEN: case B_EIGHT:
@@ -771,7 +772,7 @@ check_length:
                 }
                 if (b == B_ZERO && !qdollar)
                     M[m.BS] = (unsigned char)(qaster ? B_ASTER : B_BLANK);
-                m.BS--;
+                MM(m.BS);
             }
             break;
 
@@ -839,6 +840,10 @@ check_length:
                 do {
                     t = div_sub(asave, bsave);
                     quo++;
+                    /* a quotient field over the divisor can make the
+                       machine subtract zero for ever: the instruction
+                       limit counts these cycles too */
+                    if (m.ilimit && ++m.icount >= m.ilimit) { reason = STOP_LIMIT; goto done; }
                 } while (t == 0);
                 div_add(asave, bsave);
                 quo--;

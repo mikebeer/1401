@@ -1,0 +1,7 @@
+0057I  0042J  00042A  0057I  0000M  0000C
+       OVERFLOW     |000?        CLEARED
+005608H   0067657Q      676578
+  000B016?  0000014285G0A
+      HIGH       LOW     EQUAL     DIGITS LOW   UNEQUAL
+         123.45       $   123.45 CR              .07             *    45.67          $00,000.03
+      1230       405          AEL

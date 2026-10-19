@@ -359,7 +359,7 @@ int tape_attach(int unit, const char *name, int readonly)
     t->attached = 1;
     t->pos = 0;
     f = fopen(name, t->tapfmt ? "rb" : "r");
-    if (!f) return 0;               /* a new, empty tape */
+    if (!f) { t->dirty = 1; return 0; }     /* a new tape: written at the end */
     if (t->tapfmt) {
         int eof = 0;
         for (;;) {

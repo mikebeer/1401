@@ -799,6 +799,7 @@ static void pass1_stmt(Stmt *s)
         if (s->op < 0) { serr(s, "Unrecognized op code"); s->why = W_ERROR; return; }
     }
     pos = 21;
+    if (L[21] == B_BLANK && L[22] != B_BLANK) pos = 22;    /* "CHAIN 2" */
 
     /* blank op: repeat the previous declarative, or a DA subfield */
     if (!s->direct && s->op < 0) {
@@ -1051,8 +1052,8 @@ static void pass1_stmt(Stmt *s)
             if (lex(&s0, &e0, 0) != T_NUMBER) serr(s, "Operand of CHAIN is not a number");
             else s->nrecs = (int)num_of(s0, e0);
             if (s->nrecs < 1) s->nrecs = 1;
-            /* repeats the previous machine op code n-1 more times */
-            s->width = s->nrecs - 1;
+            /* the previous machine op code n more times, chained */
+            s->width = s->nrecs;
             {
                 Stmt *pv;
                 for (pv = s - 1; pv >= st && pv->why != W_INSTR; pv--) ;

@@ -1,0 +1,12 @@
+# name encoding   -- each test is assembled, its deck compared with the
+# expected deck (made by Van Snyder's Autocoder), then run, and its
+# printout, punch and tape compared with SimH i1401's
+t01arith A
+t02da    A
+t03ex    A
+t04tape  A
+t05cards A
+t06misc  A
+t01arith S
+t03ex    S
+t06misc  S
