@@ -1,0 +1,7 @@
+     *              CALLED BY CALL PRSUB
+     PRSUB     SBR  PRSUBX+3
+               MCW  @FROM CALL@,210
+               W
+               CS   332
+               CS
+     PRSUBX    B    000

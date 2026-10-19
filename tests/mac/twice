@@ -1,0 +1,3 @@
+     TWICE     HEADR        TWICE TEXT - A MACRO THAT CALLS A MACRO
+     )00       PRCON )01,220
+               PRCON )01,240

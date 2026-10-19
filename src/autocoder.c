@@ -330,6 +330,8 @@ typedef struct {
     int sym;               /* label symbol */
     int err;               /* error flags */
     char errtxt[80];
+    int gen;         /* 1 from a macro, 2 listed only (macro call) */
+    char preerr[60]; /* error found while expanding macros */
     int warn;
     long daorg; /* DA: start; subfield: record base */
     int nrecs, recsiz, darm, dagm, daclr, daidx;
@@ -1019,8 +1021,9 @@ static void pass1_stmt0(Stmt *s)
     cur = s;
     L = s->bcd;
     Lend = 72;
-    if (s->line[5] == '*') {
+    if (s->line[5] == '*' || s->gen == 2) {
         s->why = W_COMMENT;
+        if (s->preerr[0]) serr(s, s->preerr);
         return;
     }
 
@@ -1037,7 +1040,7 @@ static void pass1_stmt0(Stmt *s)
             has_label = 1;
             if (k != 6) s->warn = 1;
             for (i = 0; label[i]; i++)
-                if (!isalnum((unsigned char)label[i])) {
+                if (!isalnum((unsigned char)label[i]) && label[i] != ')') {
                     serr(s, "Invalid label");
                     break;
                 }
@@ -1689,8 +1692,8 @@ static void list_text(Stmt *s, const char *ct, long loc,
             objtxt[k++] = ' ';
     }
     objtxt[k] = 0;
-    sprintf(out, "%05d  %-66.66s %3s", s ? s->lineno : 0, s ? s->line + 5 : "",
-            ct);
+    sprintf(out, "%05d%c %-66.66s %3s", s ? s->lineno : 0,
+            s && s->gen == 1 ? '+' : ' ', s ? s->line + 5 : "", ct);
     if (loc >= 0)
         sprintf(out + strlen(out), " %05ld", loc);
     else
@@ -2143,12 +2146,407 @@ static void symtab_list(void)
     free(ix);
 }
 
+/* ============================================================ macros */
+
+/* Library macros, CALL and INCLD as in Van Snyder's Autocoder 4.8.
+   A statement whose operation is not an Autocoder operation calls the
+   macro of that name: the file NAME (or name, NAME.mac, name.mac) in the
+   MACLIB directories, on CMS "NAME MACRO *".  The file's first line may
+   be a HEADR line.  In each model statement:
+     )00 in the label field     the label of the macro statement
+     )0n, )nn                   the n-th operand (1-99)
+     )0A ... )0I (zone 12)      the same, but drop the statement if the
+                                operand is missing
+     )0J ... )0R (zone 11)      an internal label: )0Jnnn, nnn being the
+                                serial number of the macro statement
+   and at the end of the comment field:
+     )0/ ... )0Z (zone 0)       drop the statement if the operand is there
+     )0A ... )0I                drop the statement if it is missing
+   Operands are separated by commas; an @...@ literal may hold commas; a
+   comma followed by blanks continues the operands in column 21 of the
+   next line (up to 5 lines).  A macro may call macros.
+     CALL NAME,A,B              B NAME, DCW A, DCW B, and the file NAM
+                                (first 3 letters) is included before the
+                                next LTORG, EX or END
+     INCLD NAME                 only includes the file NAM there */
+
+#define MAXARGL 520
+static char maclib[8][256];
+static int nmaclib;
+static int macro_num;
+static char callq[64][4];
+static int ncallq, callq_done;
+static char srcdir[256];
+
+static Stmt *new_stmt(const char *line, int gen)
+{
+    Stmt *s;
+    int k, n = (int)strlen(line);
+    if (nst >= MAXLINES) {
+        fprintf(stderr, "AUTOCODR: too many lines\n");
+        exit(12);
+    }
+    s = &st[nst++];
+    memset(s->line, ' ', 80);
+    s->line[80] = 0;
+    for (k = 0; k < n && k < 80; k++) s->line[k] = line[k];
+    /* + and & are the same character (12 punch) in Autocoder */
+    for (k = 0; k < 80; k++)
+        s->bcd[k + 1] = s->line[k] == '+' ? B_AMPER : TOBCD(s->line[k]);
+    s->bcd[0] = 0;
+    s->lineno = nst;
+    s->gen = gen;
+    return s;
+}
+
+/* read a source line into buf[1..80] (1-based, blank padded), upper case */
+static int src_line(FILE *f, char *buf, int upper)
+{
+    char t[512];
+    int n, k;
+    if (!fgets(t, sizeof t, f)) return 0;
+    n = (int)strlen(t);
+    while (n > 0 && (t[n - 1] == '\n' || t[n - 1] == '\r')) t[--n] = 0;
+    memset(buf, ' ', MAXARGL);
+    buf[MAXARGL - 1] = 0;
+    for (k = 0; k < n && k < 80; k++) {
+        int c = (unsigned char)t[k];
+        if (c == '\t') c = ' ';
+        if (upper) c = toupper(c);
+        buf[k + 1] = (char)c;
+    }
+    return 1;
+}
+
+static void put_line(const char *buf, int gen) /* buf 1-based */
+{
+    char t[81];
+    memcpy(t, buf + 1, 80);
+    t[80] = 0;
+    new_stmt(t, gen);
+}
+
+static void mac_error(const char *buf, const char *msg)
+{
+    Stmt *s;
+    char t[81];
+    memcpy(t, buf + 1, 80);
+    t[80] = 0;
+    s = new_stmt(t, 2);
+    strncpy(s->preerr, msg, sizeof s->preerr - 1);
+}
+
+static FILE *open_lib(const char *name)
+{
+    char fn[300], lo[8];
+    FILE *f;
+    int i, k;
+    for (k = 0; name[k] && k < 7; k++)
+        lo[k] = (char)tolower((unsigned char)name[k]);
+    lo[k] = 0;
+#ifdef __CMS__
+    (void)i;
+    sprintf(fn, "%.8s MACRO *", name);
+    if ((f = fopen(fn, "r")) != 0) return f;
+    return 0;
+#else
+    for (i = -1; i < nmaclib; i++) {
+        const char *d = i < 0 ? srcdir : maclib[i];
+        static const char *const ext[] = {"", ".mac", ".MAC"};
+        int e, c;
+        for (e = 0; e < 3; e++)
+            for (c = 0; c < 2; c++) {
+                sprintf(fn, "%s%s%s%s", d, *d ? "/" : "", c ? lo : name,
+                        ext[e]);
+                if ((f = fopen(fn, "r")) != 0) return f;
+            }
+    }
+    return 0;
+#endif
+}
+
+/* )nX: the operand number and the zone of X; -1 if not a code */
+static int arg_code(const char *c, int *num)
+{
+    int d1 = TOBCD(c[1]), d2 = TOBCD(c[2]), z;
+    if (c[0] != ')' || (d1 & ZONE) || (d1 & DIGIT) < 1 || (d1 & DIGIT) > 10)
+        return -1;
+    if ((d2 & DIGIT) < 1 || (d2 & DIGIT) > 10) return -1;
+    z = (d2 >> 4) & 3; /* 0 none, 1 A (zero zone), 2 B (11), 3 BA (12) */
+    *num = 10 * ((d1 & DIGIT) % 10) + (d2 & DIGIT) % 10;
+    return z;
+}
+
+/* the operands from column 21: ends of operand i in a[i], a[0] = 19;
+   continuation lines come from f */
+static int get_args(char *buf, int *a, FILE *f, int listing)
+{
+    int i = 21, n = 0, lines = 1, k;
+    for (k = 0; k < 100; k++) a[k] = 19;
+    for (k = 73; k <= 80; k++) buf[k] = ' ';
+    for (;;) {
+        if (i + 1 >= MAXARGL - 1) break;
+        if (buf[i] == ' ' && buf[i + 1] == ' ' && buf[i - 1] != ',') {
+            if (i > 21 && n < 99) a[++n] = i - 1;
+            break;
+        }
+        if (buf[i] == ',') {
+            int rest = 1;
+            if (n >= 99) return -1;
+            a[++n] = i - 1;
+            for (k = i + 1; k < MAXARGL - 1; k++)
+                if (buf[k] != ' ') rest = 0;
+            if (rest) { /* continued on the next line */
+                char nx[MAXARGL];
+                if (++lines > 5 || i + 81 >= MAXARGL - 1) return -1;
+                if (!src_line(f, nx, 1)) return -1;
+                if (listing) put_line(nx, 2);
+                memcpy(buf + i + 1, nx + 21, 52);
+                memset(buf + i + 53, ' ', 28);
+            }
+        } else if (buf[i] == '@') {
+            char *q = strrchr(buf + 1, '@');
+            int j = (int)(q - buf);
+            if (j == i) return -1;
+            i = j;
+        }
+        i++;
+    }
+    return n;
+}
+
+static int present(const int *a, int n) { return a[n] >= a[n - 1] + 2; }
+
+/* the n-th operand, left adjusted, trailing blanks dropped */
+static void arg_text(const char *al, const int *a, int n, char *out)
+{
+    int s = a[n - 1] + 2, e = a[n], k = 0;
+    if (n < 1 || !present(a, n)) {
+        out[0] = 0;
+        return;
+    }
+    while (s <= e && al[s] == ' ') s++;
+    while (e >= s && al[e] == ' ') e--;
+    for (; s <= e; s++) out[k++] = al[s];
+    out[k] = 0;
+}
+
+static void expand(FILE *f, int depth, int callfile, const char *al,
+                   const int *a);
+
+static void do_calls(int depth)
+{
+    while (callq_done < ncallq) {
+        FILE *cf = open_lib(callq[callq_done]);
+        char t[MAXARGL];
+        if (!cf) {
+            memset(t, ' ', sizeof t);
+            t[MAXARGL - 1] = 0;
+            sprintf(t + 1, "     *  %s  UNKNOWN", callq[callq_done]);
+            t[strlen(t)] = ' ';
+            mac_error(t, "CALL or INCLD file not found");
+        } else {
+            expand(cf, depth + 1, 1, 0, 0);
+            fclose(cf);
+        }
+        callq_done++;
+    }
+    ncallq = callq_done = 0;
+}
+
+/* substitute the operands of macro call al (ends a) into model statement
+   buf; 0 if the statement is dropped */
+static int model_stmt(char *buf, const char *al, const int *a)
+{
+    int l, i, num, z, k;
+    char arg[MAXARGL], t[MAXARGL];
+    /* conditions at the end of the comment field */
+    for (l = 80; l > 0 && buf[l] == ' '; l--);
+    l -= 2;
+    {
+        int c = 0;
+        for (i = l - 1; i >= 1; i--)
+            if (buf[i] == ' ' && buf[i + 1] == ' ') {
+                c = i;
+                break;
+            }
+        if (c < 21) l = 0;
+        for (i = c; c && i <= 80; i++)
+            if (buf[i] == '@') l = 0;
+    }
+    while (l > 8) {
+        if (buf[l] != ')') break;
+        z = arg_code(buf + l, &num);
+        if (z == 1) {
+            if (present(a, num)) return 0;
+        } else if (z == 3) {
+            if (!present(a, num)) return 0;
+        } else
+            break;
+        buf[l] = buf[l + 1] = buf[l + 2] = ' ';
+        l -= 3;
+    }
+    if (!memcmp(buf + 6, ")00   ", 6)) memcpy(buf + 6, al + 6, 7);
+    i = 0;
+    for (;;) {
+        char *q = memchr(buf + i + 1, ')', 80 - i > 0 ? 80 - i : 0);
+        if (!q) break;
+        l = (int)(q - buf);
+        z = arg_code(buf + l, &num);
+        if (z == 0 || z == 3) {
+            if (z == 3 && !present(a, num)) return 0;
+            arg_text(al, a, num, arg);
+            if (buf[6] == '*' || l >= 21) {
+                int n = (int)strlen(arg);
+                memcpy(t, buf + l + 3, MAXARGL - l - 3);
+                memset(buf + l, ' ', MAXARGL - l - 1);
+                for (k = 0; k < n && l + k < MAXARGL - 1; k++)
+                    buf[l + k] = arg[k];
+                for (k = 0; l + n + k < MAXARGL - 1 && t[k]; k++)
+                    buf[l + n + k] = t[k];
+                buf[MAXARGL - 1] = 0;
+                i = l - 1 + n;
+            } else if (l < 16) {
+                memset(buf + 6, ' ', 10);
+                for (k = 0; k < 10 && arg[k]; k++) buf[6 + k] = arg[k];
+                i = l + 2;
+            } else {
+                memset(buf + 16, ' ', 5);
+                for (k = 0; k < 5 && arg[k]; k++) buf[16 + k] = arg[k];
+                i = l + 2;
+            }
+        } else if (z == 2) { /* internal label )nXsss */
+            if (l != 6) memmove(buf + l + 6, buf + l + 3, MAXARGL - l - 7);
+            buf[l + 3] = (char)('0' + macro_num / 100 % 10);
+            buf[l + 4] = (char)('0' + macro_num / 10 % 10);
+            buf[l + 5] = (char)('0' + macro_num % 10);
+            buf[MAXARGL - 1] = 0;
+            i = l + 5;
+        } else
+            i = l;
+        if (i >= 80) break;
+    }
+    return 1;
+}
+
+static int is_op(const char *buf)
+{
+    char nm[6];
+    int n = 0, i;
+    if (buf[16] == ' ' && buf[17] == ' ' && buf[18] == ' ') return 1;
+    for (i = 16; i <= 20 && buf[i] != ' '; i++) nm[n++] = buf[i];
+    nm[n] = 0;
+    return find_op(nm) >= 0;
+}
+
+static void expand(FILE *f, int depth, int callfile, const char *al,
+                   const int *a)
+{
+    char buf[MAXARGL], op[6];
+    int i, n, gen = depth > 0;
+    while (src_line(f, buf, 1)) {
+        for (i = 1; i <= 80 && buf[i] == ' '; i++);
+        if (i > 80) buf[6] = '*'; /* an empty line */
+        if (al) {
+            if (!memcmp(buf + 16, "HEADR", 5) || !memcmp(buf + 16, "INSER", 5))
+                continue;
+            if (!model_stmt(buf, al, a)) continue;
+        }
+        if (buf[6] == '*') {
+            put_line(buf, gen);
+            continue;
+        }
+        for (n = 0, i = 16; i <= 20 && buf[i] != ' '; i++) op[n++] = buf[i];
+        op[n] = 0;
+        if (!strcmp(op, "CALL") || !strcmp(op, "INCLD")) {
+            int args[100], na, k;
+            char nm[8];
+            put_line(buf, 2);
+            k = buf[21] == ' ' ? 22 : 21; /* "INCLD NAME" */
+            for (n = 0; buf[k] != ' ' && buf[k] != ',' && n < 6; k++)
+                nm[n++] = buf[k];
+            nm[n] = 0;
+            if (!n || !isalpha((unsigned char)nm[0])) {
+                mac_error(buf, "First operand of CALL or INCLD is not a name");
+                continue;
+            }
+            nm[3] = 0;
+            for (k = 0; k < ncallq; k++)
+                if (!strcmp(callq[k], nm)) break;
+            if (k == ncallq && ncallq < 64) strcpy(callq[ncallq++], nm);
+            na = get_args(buf, args, f, 1);
+            if (na < 0) {
+                mac_error(buf, "Bad operands of CALL or INCLD");
+                continue;
+            }
+            if (callfile && na > 1) {
+                mac_error(buf, "Arguments not permitted within CALL file");
+                continue;
+            }
+            if (op[0] == 'C') {
+                char g[MAXARGL], arg[MAXARGL];
+                for (k = 1; k <= na; k++) {
+                    arg_text(buf, args, k, arg);
+                    memset(g, ' ', sizeof g);
+                    g[MAXARGL - 1] = 0;
+                    if (k == 1) memcpy(g + 6, buf + 6, 6);
+                    memcpy(g + 16, k == 1 ? "B    " : "DCW  ", 5);
+                    memcpy(g + 21, arg, strlen(arg) < 52 ? strlen(arg) : 52);
+                    put_line(g, 1);
+                }
+            }
+            continue;
+        }
+        if (!strcmp(op, "END") || !strcmp(op, "EX") || !strcmp(op, "LTORG") ||
+            !strcmp(op, "ORG")) {
+            if (callfile) {
+                mac_error(buf, "Not allowed in a CALL or INCLD file");
+                continue;
+            }
+            if (op[0] != 'O') do_calls(depth);
+            put_line(buf, gen);
+            continue;
+        }
+        if (!strcmp(op, "HEADR")) {
+            put_line(buf, 2);
+            continue;
+        }
+        if (is_op(buf)) {
+            put_line(buf, gen);
+            continue;
+        }
+        { /* a macro */
+            FILE *mf = strlen(op) >= 3 ? open_lib(op) : 0;
+            int args[100], na;
+            if (!mf) {
+                put_line(buf, gen); /* "Unrecognized op code" */
+                continue;
+            }
+            if (depth > 20) {
+                mac_error(buf, "Macros nested too deeply");
+                fclose(mf);
+                continue;
+            }
+            macro_num++;
+            put_line(buf, 2);
+            na = get_args(buf, args, f, 1);
+            if (na < 0) {
+                mac_error(buf, "Bad macro operands");
+                fclose(mf);
+                continue;
+            }
+            expand(mf, depth + 1, 0, buf, args);
+            fclose(mf);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     char *src = 0, *deckname = 0, *listname = 0;
     int nodeck = 0, nolist = 0, i, opts = 0;
     FILE *in;
-    char base[64], line[512];
+    char base[64];
     int changed, iter;
 
     bcd_set_encoding('A');
@@ -2186,6 +2584,13 @@ int main(int argc, char **argv)
             listname = take_file(argc, argv, &i);
         else if (!strcmp(kw, "NOLIST"))
             nolist = 1;
+        else if ((!strcmp(kw, "MACLIB") || !strcmp(kw, "I")) && i < argc) {
+            if (nmaclib < 8) {
+                strncpy(maclib[nmaclib], argv[i], 255);
+                nmaclib++;
+            }
+            i++;
+        }
         else if ((!strcmp(kw, "ENCODING") || !strcmp(kw, "ENC") ||
                   !strcmp(kw, "E")) &&
                  i < argc) {
@@ -2219,7 +2624,7 @@ int main(int argc, char **argv)
                         " - IBM 1401 Autocoder for VM/370plus\n"
                         "usage: AUTOCODR source ( options\n"
                         "  DECK file | NODECK   LIST file | NOLIST\n"
-                        "  ENCODING A|H|S   BOOT I|N   SIZE n\n"
+                        "  ENCODING A|H|S   BOOT I|N   SIZE n   MACLIB dir\n"
                         "on the PC each option may be written -option\n");
         return 12;
     }
@@ -2251,33 +2656,24 @@ int main(int argc, char **argv)
         fprintf(stderr, "AUTOCODR: cannot open %s\n", src);
         return 12;
     }
+#ifndef __CMS__
+    { /* macros are looked for next to the source first */
+        char *sl;
+        strncpy(srcdir, src, sizeof srcdir - 1);
+        sl = strrchr(srcdir, '/');
+        if (sl)
+            *sl = 0;
+        else
+            strcpy(srcdir, ".");
+    }
+#endif
 
     st = (Stmt *)calloc(MAXLINES, sizeof(Stmt));
     if (!st) {
         fprintf(stderr, "AUTOCODR: no storage\n");
         return 12;
     }
-    while (fgets(line, sizeof line, in)) {
-        Stmt *s;
-        int n, k;
-        if (nst >= MAXLINES) {
-            fprintf(stderr, "AUTOCODR: too many lines\n");
-            return 12;
-        }
-        s = &st[nst++];
-        n = (int)strlen(line);
-        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
-            line[--n] = 0;
-        memset(s->line, ' ', 80);
-        s->line[80] = 0;
-        for (k = 0; k < n && k < 80; k++)
-            s->line[k] = line[k] == '\t' ? ' ' : line[k];
-        /* + and & are the same character (12 punch) in Autocoder */
-        for (k = 0; k < 80; k++)
-            s->bcd[k + 1] = s->line[k] == '+' ? B_AMPER : TOBCD(s->line[k]);
-        s->bcd[0] = 0;
-        s->lineno = nst;
-    }
+    expand(in, 0, 0, 0, 0);
     fclose(in);
 
     /* pass 1, repeated until the symbol values settle */

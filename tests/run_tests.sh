@@ -19,7 +19,7 @@ grep -v '^#' tests.txt | while read n e; do echo "$n $e"; done > "$W/list"
 while read n e; do
   [ -z "$n" ] && continue
   src=src/$n.s; [ -f $src ] || src=../samples/$n.s
-  $B/autocoder $src -enc $e -deck $W/$n.cd -list $W/$n.lst >/dev/null 2>&1
+  $B/autocoder $src -enc $e -maclib mac -deck $W/$n.cd -list $W/$n.lst >/dev/null 2>&1
   cmp -s $W/$n.cd expect/$n.$e.cd; check "$n.$e.deck" $?
   in=$W/$n.cd; [ -f src/$n.dat ] && in="$W/$n.cd src/$n.dat"
   rm -f $W/$n.tap

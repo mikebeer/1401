@@ -1,0 +1,7 @@
+     PRCON     HEADR        PRCON TEXT,POS - PRINT A CONSTANT ENDING AT POS
+     )00       B    )0J
+     )0K       DCW  )01
+     )0J       MCW  )0K,)02
+               W
+               CS   332
+               CS

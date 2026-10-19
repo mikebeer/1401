@@ -18,3 +18,4 @@ t09ramac A
 t10colbin A
 t11lc    A
 t12reloc A
+t13macro A
