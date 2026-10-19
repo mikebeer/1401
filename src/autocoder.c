@@ -358,6 +358,7 @@ enum {
     W_SFX,
     W_CHAIN,
     W_IGNORE,
+    W_LC,
     W_ERROR
 };
 
@@ -825,6 +826,135 @@ static void num_to_addr(long num, int index, unsigned char *out)
 
 static long p, pmax;
 
+/* location counters 0-9 (Van Snyder's LC): 0 is absolute and starts at
+   333; others are absolute (start at 0) or relocatable.  AUTOCODR has no
+   linker: a relocatable counter is placed by the assembler, after the
+   highest absolute address, in counter order (R), at the next multiple
+   of 100 plus an offset (R,X00+n), or at a label plus an offset (X).
+   The bases settle with the symbol values over the repeated pass 1. */
+#define NLC 10
+static int lc_cur;
+static long lc_p[NLC];     /* where assembly left off, -1 not used yet */
+static long lc_hi[NLC];    /* highest location used + 1 */
+static int lc_kind[NLC];   /* 0 unknown, 'A', 'R', 'X' */
+static int lc_hasx00[NLC]; /* R,X00+n */
+static long lc_x00[NLC];   /* n */
+static char lc_xsym[NLC][7];
+static long lc_xoff[NLC];
+static long lc_base[NLC];  /* relocatable: where it starts */
+
+static void lc_stmt(Stmt *s, int *pos)
+{
+    Operand o1, o2, o3;
+    int r, n, kind;
+    memset(&o2, 0, sizeof o2);
+    memset(&o3, 0, sizeof o3);
+    s->why = W_LC;
+    r = parse(pos, &o1, 0);
+    if (o1.kind != K_ACTUAL || o1.addr > 9 || o1.offset || o1.index >= 0) {
+        serr(s, "Location counter must be 0-9");
+        return;
+    }
+    n = (int)o1.addr;
+    kind = 'A';
+    if (r == 0) { /* a comma: more operands */
+        r = parse(pos, &o2, 0);
+        if (o2.kind == K_SYMBOLIC && !strcmp(o2.label, "R"))
+            kind = 'R';
+        else if (o2.kind == K_SYMBOLIC && !strcmp(o2.label, "X"))
+            kind = 'X';
+        else {
+            serr(s, "Second operand must be R or X");
+            return;
+        }
+        if (r == 0) parse(pos, &o3, 1);
+        if (o3.kind == K_SYMBOLIC && !strcmp(o3.label, "X00")) {
+            o3.kind = K_ACTUAL; /* X00+n */
+            o3.offset += X00;
+        }
+        if (kind == 'X' && o3.kind != K_SYMBOLIC) {
+            serr(s, "LC n,X needs a label");
+            return;
+        }
+        if (kind == 'R' && o3.kind != K_NONE && o3.offset < X00 - 999) {
+            serr(s, "Third operand must be X00");
+            return;
+        }
+    }
+    if (n == 0 && kind != 'A') {
+        serr(s, "Location counter 0 is absolute");
+        return;
+    }
+    if (o2.kind == K_NONE && lc_kind[n])
+        kind = lc_kind[n]; /* back to a counter already established */
+    if (lc_kind[n] && lc_kind[n] != kind) {
+        serr(s, "Location counter changed between absolute and relocatable");
+        return;
+    }
+    if (o2.kind != K_NONE || !lc_kind[n]) { /* establish it */
+        lc_kind[n] = kind;
+        lc_hasx00[n] = 0;
+        if (kind == 'R' && o3.kind != K_NONE) {
+            lc_hasx00[n] = 1;
+            lc_x00[n] = o3.offset - X00;
+        }
+        if (kind == 'X') {
+            strcpy(lc_xsym[n], o3.label);
+            lc_xoff[n] = o3.offset;
+            syms[sym_get(o3.label)].referenced = 1;
+        }
+    }
+    lc_p[lc_cur] = p;
+    if (lc_p[n] < 0) {
+        lc_p[n] = lc_kind[n] == 'A' ? 0 : lc_base[n];
+        lc_hi[n] = lc_p[n];
+    }
+    lc_cur = n;
+    p = lc_p[n];
+    s->loc = p;
+}
+
+static void lc_reset(void)
+{
+    int i;
+    for (i = 0; i < NLC; i++) {
+        lc_p[i] = -1;
+        lc_hi[i] = 0;
+    }
+    lc_cur = 0;
+    lc_p[0] = 333;
+}
+
+/* after a pass: place the relocatable counters; 1 if a base moved */
+static int lc_place(void)
+{
+    long top = 0, b, size;
+    int i, moved = 0;
+    lc_p[lc_cur] = p;
+    for (i = 0; i < NLC; i++)
+        if (lc_p[i] >= 0 && lc_kind[i] != 'R' && lc_kind[i] != 'X' &&
+            lc_hi[i] > top)
+            top = lc_hi[i];
+    for (i = 1; i < NLC; i++) {
+        if (lc_p[i] < 0 || (lc_kind[i] != 'R' && lc_kind[i] != 'X'))
+            continue;
+        size = lc_hi[i] - lc_base[i];
+        if (lc_kind[i] == 'X') {
+            long v = sym_value(sym_find(lc_xsym[i]));
+            b = (v > REF ? v : top) + lc_xoff[i];
+        } else if (lc_hasx00[i]) {
+            long k = lc_x00[i];
+            b = (top + 99) / 100 * 100 + k;
+            while (b < top) b += 100;
+        } else
+            b = top;
+        if (b != lc_base[i]) moved = 1;
+        lc_base[i] = b;
+        if (b + size > top) top = b + size;
+    }
+    return moved;
+}
+
 static void define(Stmt *s, const char *name, long val, int index)
 {
     int i = sym_get(name);
@@ -864,7 +994,14 @@ static void ltorg(Stmt *s)
 
 static int prev_op;
 
+static void pass1_stmt0(Stmt *s);
 static void pass1_stmt(Stmt *s)
+{
+    pass1_stmt0(s);
+    if (p > lc_hi[lc_cur]) lc_hi[lc_cur] = p;
+}
+
+static void pass1_stmt0(Stmt *s)
 {
     int pos, r, i, lt, le;
     const OpCode *oc;
@@ -1199,6 +1336,7 @@ static void pass1_stmt(Stmt *s)
             if (!(has_label && isdigit((unsigned char)label[0]))) p += s->width;
         } else if (!strcmp(o, "ORG") || !strcmp(o, "LTORG")) {
             Operand *op = &s->ops[0];
+            int rel = lc_kind[lc_cur] == 'R' || lc_kind[lc_cur] == 'X';
             s->why = o[0] == 'L' ? W_LTORG : W_ORG;
             if (has_label) define(s, label, p, 0);
             r = parse(&pos, op, 1);
@@ -1208,6 +1346,8 @@ static void pass1_stmt(Stmt *s)
                 op->kind = K_ACTUAL;
                 op->addr = pmax;
             }
+            if (rel && s->why == W_ORG && op->kind == K_ACTUAL)
+                serr(s, "Absolute ORG in a relocatable location counter");
             switch (op->kind) {
             case K_ACTUAL: p = op->addr; break;
             case K_ASTER: break;
@@ -1264,7 +1404,7 @@ static void pass1_stmt(Stmt *s)
             }
             p += s->width;
         } else if (!strcmp(o, "LC")) {
-            s->why = W_IGNORE;
+            lc_stmt(s, &pos);
         } else {
             s->why =
                 W_IGNORE; /* ALTER CALL DELET INSER INCLD PRINT PUNCH ENT */
@@ -1714,6 +1854,7 @@ static void pass2(void)
         case W_JOB:
         case W_CTL:
         case W_SFX:
+        case W_LC: list_text(s, "", s->loc, 0, 0, 0); break;
         case W_IGNORE:
         case W_EQU:
         case W_SBFLD:
@@ -2152,6 +2293,7 @@ int main(int argc, char **argv)
         }
         p = 333;
         pmax = 0;
+        lc_reset();
         for (i = 0; i < nst; i++) {
             pass1_stmt(&st[i]);
             if (st[i].why == W_END) {
@@ -2159,7 +2301,7 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        changed = 0;
+        changed = lc_place();
         for (i = 0; i < nsyms; i++)
             if (syms[i].val != syms[i].prev) changed = 1;
         if (!changed && iter > 1) break;
