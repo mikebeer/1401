@@ -18,7 +18,13 @@
 /*   TO userid         another 1401 guest (default IBM1401)             */
 /* Build 2.                                                             */
 
-parse upper arg fn ft fm '(' opt
+parse upper arg args
+/* split at '(' by hand: the template fn ft fm '(' opt put '(' in */
+/* ft under VM/370plus CMS (RUN1401 FIB ( TYPE)                 */
+opt = ''
+p = pos('(', args)
+if p > 0 then do; opt = substr(args, p + 1); args = left(args, p - 1); end
+parse var args fn ft fm .
 if fn = '' | fn = '?' then do
   say 'SEND1401: usage: SEND1401 fn [ft [fm]] [( options]'
   say '  options: DATA fn ft fm  TAPEn name  PACKn name  DISK name'

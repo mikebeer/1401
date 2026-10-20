@@ -25,7 +25,13 @@
 /* check, 20 file error), or AUTOCODR's if the assembly failed.         */
 /* Build 2.                                                             */
 
-parse arg fn ft fm '(' opt
+parse arg args
+/* split at '(' by hand: the template fn ft fm '(' opt put '(' in */
+/* ft under VM/370plus CMS (RUN1401 FIB ( TYPE)                 */
+opt = ''
+p = pos('(', args)
+if p > 0 then do; opt = substr(args, p + 1); args = left(args, p - 1); end
+parse var args fn ft fm .
 parse upper var fn fn
 parse upper var ft ft
 parse upper var fm fm
